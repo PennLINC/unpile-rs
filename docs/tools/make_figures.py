@@ -93,18 +93,9 @@ def gre_refinement(fx, out):
     plt.close(fig)
 
 
-def edges(a2d, sigma=2.0):
-    """Canny edges of a display slice (the strong ones only), for overlaying the reference's anatomy on the EPI panels."""
-    from skimage.feature import canny
-    lo, hi = np.percentile(a2d, [2, 98])
-    x = np.clip((a2d - lo) / max(hi - lo, 1e-6), 0, 1)
-    return canny(x, sigma=sigma, low_threshold=0.15, high_threshold=0.35)
-
-
-def overlay_edges(ax, e2d, aspect, color=(1.0, 0.25, 0.1)):
-    rgba = np.zeros(e2d.shape + (4,))
-    rgba[e2d] = (*color, 0.9)
-    ax.imshow(rgba, origin="lower", aspect=aspect, interpolation="nearest")
+def overlay_boundary(ax, m2d, color="#ff3b1f"):
+    """Draw the boundary of a binary mask slice (the gray/white boundary when it is a white-matter mask)."""
+    ax.contour(m2d.astype(float), levels=[0.5], colors=[color], linewidths=0.7, origin="lower")
 
 
 def best_slice(disp, mask):
@@ -114,8 +105,9 @@ def best_slice(disp, mask):
     return max(cands)[1]
 
 
-def fieldmapless_sbref(real, real_out, out):
+def fieldmapless_sbref(real, real_out, wm_path, out):
     sb, img = vol(f"{real}/sbref_ap.nii.gz")
+    wm = vol(wm_path)[0] > 0.5
     corr, _ = vol(f"{real_out}/corrected.nii.gz")
     t2, _ = vol(f"{real}/t2w.nii.gz")
     field, _ = vol(f"{real_out}/field_hz.nii.gz")
@@ -125,15 +117,15 @@ def fieldmapless_sbref(real, real_out, out):
     z = best_slice(disp, mask)
     aspect = img.header.get_zooms()[1] / img.header.get_zooms()[0]
     m2 = axial(mask, z)
-    e = crop(edges(axial(t2, z)), m2, 8)
+    w2 = crop(axial(wm, z), m2, 8)
     field = field - field[mask].mean()  # the fit pins the in-brain mean (the pose carries the DC); compare structure
     topup = topup - topup[mask].mean()
     fig, axes = plt.subplots(2, 3, figsize=(9.5, 6.8))
     for ax, a, t in zip(axes[0], [sb, corr, t2],
-                        ["SBRef as acquired\n(T2w edges in red)", "corrected by unpile\n(T2w reference, joint pose)", "T2w reference"]):
+                        ["SBRef as acquired\n(white-matter boundary in red)", "corrected by unpile\n(T2w reference, joint pose)", "T2w reference"]):
         panel(ax, crop(axial(a, z), m2, 8), t, aspect=aspect)
         if a is not t2:
-            overlay_edges(ax, e, aspect)
+            overlay_boundary(ax, w2)
     hz = 70
     for ax, a, t in zip(axes[1], [field, topup, field - topup],
                         ["unpile field (Hz, mean removed)", "FSL topup field from the\nspin-echo pair (Hz, mean removed)", "difference (Hz)"]):
@@ -148,25 +140,25 @@ def fieldmapless_sbref(real, real_out, out):
     plt.close(fig)
 
 
-def before_after_svg(real, real_out, out):
+def before_after_svg(real, real_out, wm_path, out):
     """A nireports before/after view (the kind qsiprep's reports use): the acquired and the corrected
-    EPI alternate, with contours of the T2w's bright (CSF) tissue drawn on both."""
+    EPI alternate, with the white-matter boundary from a segmentation of the T2w drawn on both."""
     from nireports.reportlets.mosaic import plot_registration
     from nireports.reportlets.utils import compose_view, cuts_from_bbox
-    from scipy import ndimage as ndi
 
     before = nb.load(f"{real}/sbref_ap.nii.gz")
     after = nb.load(f"{real_out}/corrected.nii.gz")
     mask_img = nb.load(f"{real}/brain_mask.nii.gz")
-    mask = np.asarray(mask_img.dataobj) > 0
-    t2 = np.asarray(nb.load(f"{real}/t2w.nii.gz").dataobj, np.float32)
-    csf = (t2 > np.percentile(t2[mask], 72)) & mask
-    csf = ndi.binary_opening(csf, iterations=1)
-    contour = nb.Nifti1Image(csf.astype(np.uint8), mask_img.affine)
+    contour = nb.load(wm_path)
     cuts = cuts_from_bbox(mask_img, cuts=5)
     bg = plot_registration(before, "fixed-image", estimate_brightness=True, cuts=cuts, label="as acquired", contour=contour, compress="auto")
     fg = plot_registration(after, "moving-image", estimate_brightness=True, cuts=cuts, label="corrected (T2w reference)", contour=contour, compress="auto")
-    compose_view(bg, fg, out_file=f"{out}/fieldmapless_sbref_before_after.svg")
+    svg = f"{out}/fieldmapless_sbref_before_after.svg"
+    compose_view(bg, fg, out_file=svg)
+    # nireports pauses the alternation until the pointer hovers over the SVG, which never happens to an
+    # SVG embedded as an image in a page: let it run, at two seconds per state
+    txt = open(svg).read().replace("alternate none infinite paused", "alternate none infinite running").replace("animation: 1s ease-in-out", "animation: 2s ease-in-out")
+    open(svg, "w").write(txt)
 
 
 def resolution_sweep(out):
@@ -217,12 +209,13 @@ if __name__ == "__main__":
     ap.add_argument("--fixtures", default="testdata/fixtures")
     ap.add_argument("--testdata-real", required=True, help="ds002737 inputs on the 1.8 mm grid")
     ap.add_argument("--real-out", required=True, help="unpile output directory of the 1.8 mm ds002737 fit")
+    ap.add_argument("--wm", required=True, help="white-matter mask on the 1.8 mm grid (SynthSeg of the T2w, labels 2/41/7/46/16)")
     ap.add_argument("--out", default="docs/_static")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     gre_refinement(a.fixtures, a.out)
-    fieldmapless_sbref(a.testdata_real, a.real_out, a.out)
-    before_after_svg(a.testdata_real, a.real_out, a.out)
+    fieldmapless_sbref(a.testdata_real, a.real_out, a.wm, a.out)
+    before_after_svg(a.testdata_real, a.real_out, a.wm, a.out)
     resolution_sweep(a.out)
     two_blip(a.fixtures, a.out)
     print("figures written to", a.out)

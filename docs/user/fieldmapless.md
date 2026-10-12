@@ -63,15 +63,16 @@ On the simulated dataset the fitted position recovers a 7.1° / 5.1 mm misplacem
 1.3° / 2.0 mm, or 0.5° / 1.6 mm on the 2 mm grid.
 
 ```{figure} ../_static/fieldmapless_sbref.png
-:alt: SBRef before and after correction with the T2w's edges overlaid, and the field next to a topup field.
+:alt: SBRef before and after correction with the white-matter boundary overlaid, and the field next to a topup field.
 
-The ds002737 run from the table, with the T2w's edges drawn on both EPI panels. Where the field is
-moderate the cortex lands on the edges. In the frontal and temporal hot spots unpile's field has
-about half of topup's amplitude, so those regions are only partly restored.
+The ds002737 run from the table, with the white-matter boundary from a SynthSeg segmentation of the
+T2w drawn on both EPI panels. Where the field is moderate the cortex lands on it after correction.
+In the frontal and temporal hot spots unpile's field has about half of topup's amplitude, so those
+regions are only partly restored.
 ```
 
 ```{figure} ../_static/fieldmapless_sbref_before_after.svg
-:alt: The SBRef before and after correction, alternating, with CSF contours from the T2w.
+:alt: The SBRef before and after correction, alternating, with the white-matter boundary from the T2w.
 
-The same run as a before/after view with contours of the T2w's bright tissue.
+The same run as a before/after view, alternating every two seconds, with the white-matter boundary.
 ```

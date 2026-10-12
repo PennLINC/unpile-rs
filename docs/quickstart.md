@@ -31,10 +31,11 @@ cores. `out/sbref/` contains the field in Hz, the displacement in mm, the correc
 warp and the T2w pose as an ITK affine.
 
 ```{figure} _static/fieldmapless_sbref_before_after.svg
-:alt: The single-band reference before and after correction, alternating, with contours of the T2w's bright tissue.
+:alt: The single-band reference before and after correction, alternating, with the white-matter boundary from the T2w.
 
-The image before and after correction, alternating. The red contours are the bright tissue of the T2w.
-This run was fitted on a 1.8 mm grid; see {doc}`user/fieldmapless` for why.
+The image before and after correction, alternating every two seconds. The red lines are the
+white-matter boundary from a SynthSeg segmentation of the T2w. This run was fitted on a 1.8 mm grid;
+see {doc}`user/fieldmapless` for why.
 ```
 
 ## Refining a fieldmap
