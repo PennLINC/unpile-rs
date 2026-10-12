@@ -58,6 +58,13 @@ both the position and the field can be scored:
 The same run.
 ```
 
+```{figure} ../_static/gre_refinement_before_after.svg
+:alt: The simulated b=0 before and after correction with the refined fieldmap, alternating.
+
+The b=0 of that run before and after correction, alternating every two seconds, with the
+white-matter boundary of the simulated subject in red.
+```
+
 On real data there is no truth. What can be checked is that the position unpile finds agrees with
 a rigid registration of the magnitude image, and that it does, to within a degree, on the data we
 have tried. A fieldmap with a large unwrapping failure is beyond the residual term; fix the

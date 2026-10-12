@@ -71,8 +71,10 @@ In the frontal and temporal hot spots unpile's field has about half of topup's a
 regions are only partly restored.
 ```
 
-```{figure} ../_static/fieldmapless_sbref_before_after.svg
-:alt: The SBRef before and after correction, alternating, with the white-matter boundary from the T2w.
+```{figure} ../_static/fieldmapless_before_after.svg
+:alt: A 2 mm spin-echo EPI before and after correction, alternating, with the white-matter boundary from the T2w.
 
-The same run as a before/after view, alternating every two seconds, with the white-matter boundary.
+The BOLD5000 run from the table as a before/after view through the slice with the largest
+displacement, alternating every two seconds, with the white-matter boundary from a SynthSeg
+segmentation of the T2w. The displacement is 1 mm at the median voxel and 4 mm at the 90th percentile.
 ```

@@ -140,25 +140,36 @@ def fieldmapless_sbref(real, real_out, wm_path, out):
     plt.close(fig)
 
 
-def before_after_svg(real, real_out, wm_path, out):
-    """A nireports before/after view (the kind qsiprep's reports use): the acquired and the corrected
-    EPI alternate, with the white-matter boundary from a segmentation of the T2w drawn on both."""
-    from nireports.reportlets.mosaic import plot_registration
-    from nireports.reportlets.utils import compose_view, cuts_from_bbox
+def world_cut(img, mask, axis, index):
+    """World coordinate of a slice index along `axis`, taken at the mask centroid of that slice."""
+    sub = np.take(mask, index, axis=axis)
+    idx = np.array(np.nonzero(sub)).mean(axis=1)
+    vox = np.insert(idx, axis, index)
+    return float((img.affine @ np.append(vox, 1.0))[axis])
 
-    before = nb.load(f"{real}/sbref_ap.nii.gz")
-    after = nb.load(f"{real_out}/corrected.nii.gz")
-    mask_img = nb.load(f"{real}/brain_mask.nii.gz")
-    contour = nb.load(wm_path)
-    cuts = cuts_from_bbox(mask_img, cuts=5)
-    bg = plot_registration(before, "fixed-image", estimate_brightness=True, cuts=cuts, label="as acquired", contour=contour, compress="auto")
-    fg = plot_registration(after, "moving-image", estimate_brightness=True, cuts=cuts, label="corrected (T2w reference)", contour=contour, compress="auto")
-    svg = f"{out}/fieldmapless_sbref_before_after.svg"
-    compose_view(bg, fg, out_file=svg)
-    # nireports pauses the alternation until the pointer hovers over the SVG, which never happens to an
-    # SVG embedded as an image in a page: let it run, at two seconds per state
-    txt = open(svg).read().replace("alternate none infinite paused", "alternate none infinite running").replace("animation: 1s ease-in-out", "animation: 2s ease-in-out")
-    open(svg, "w").write(txt)
+
+def before_after_svg(before_path, after_path, mask_path, wm_path, disp_path, out_file, labels=("as acquired", "corrected")):
+    """A nireports before/after view (the kind qsiprep's reports use) with one large axial panel through
+    the slice where the displacement is largest, and the white-matter boundary drawn on both images. The alternation is set to run on its own (nireports pauses it
+    until the pointer hovers, which never happens to an SVG embedded as an image)."""
+    from nireports.reportlets.mosaic import plot_registration
+    from nireports.reportlets.utils import compose_view
+
+    before, after = nb.load(before_path), nb.load(after_path)
+    mask_img = nb.load(mask_path)
+    mask = np.asarray(mask_img.dataobj) > 0
+    wm = nb.load(wm_path)
+    disp = np.abs(np.asarray(nb.load(disp_path).dataobj, np.float32))
+    # one large axial panel through the slice with the largest mean displacement: at the page's column
+    # width that is about 4 pixels per mm, so a 3 mm shift is plainly visible
+    area = mask.sum(axis=(0, 1))
+    k = max((disp[:, :, k][mask[:, :, k]].mean(), k) for k in range(mask.shape[2]) if area[k] > 0.88 * area.max())[1]
+    cuts = {"z": [world_cut(before, mask, 2, k)]}
+    bg = plot_registration(before, "fixed-image", estimate_brightness=True, cuts=cuts, order=("z",), label=labels[0], contour=wm, compress="auto")
+    fg = plot_registration(after, "moving-image", estimate_brightness=True, cuts=cuts, order=("z",), label=labels[1], contour=wm, compress="auto")
+    compose_view(bg, fg, out_file=out_file)
+    txt = open(out_file).read().replace("alternate none infinite paused", "alternate none infinite running").replace("animation: 1s ease-in-out", "animation: 2s ease-in-out")
+    open(out_file, "w").write(txt)
 
 
 def resolution_sweep(out):
@@ -210,12 +221,19 @@ if __name__ == "__main__":
     ap.add_argument("--testdata-real", required=True, help="ds002737 inputs on the 1.8 mm grid")
     ap.add_argument("--real-out", required=True, help="unpile output directory of the 1.8 mm ds002737 fit")
     ap.add_argument("--wm", required=True, help="white-matter mask on the 1.8 mm grid (SynthSeg of the T2w, labels 2/41/7/46/16)")
+    ap.add_argument("--b5k", required=True, help="BOLD5000 ses-01 inputs from the test data bundle (se_ap, t2w, brain_mask)")
+    ap.add_argument("--b5k-out", required=True, help="unpile output directory of the BOLD5000 ses-01 T2w fit (native grid)")
+    ap.add_argument("--b5k-wm", required=True, help="white-matter mask on the BOLD5000 ses-01 grid (SynthSeg of its T2w)")
     ap.add_argument("--out", default="docs/_static")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     gre_refinement(a.fixtures, a.out)
     fieldmapless_sbref(a.testdata_real, a.real_out, a.wm, a.out)
-    before_after_svg(a.testdata_real, a.real_out, a.wm, a.out)
+    before_after_svg(f"{a.b5k}/se_ap.nii.gz", f"{a.b5k_out}/corrected.nii.gz", f"{a.b5k}/brain_mask.nii.gz", a.b5k_wm,
+                     f"{a.b5k_out}/disp_pe_mm.nii.gz", f"{a.out}/fieldmapless_before_after.svg", ("as acquired", "corrected"))
+    fx = os.path.join(a.fixtures, "phasediff", "unpile")
+    before_after_svg(f"{fx}/b0_AP.nii.gz", f"{fx}/out/gre/corrected.nii.gz", f"{fx}/brain_mask.nii.gz", f"{fx}/wm_mask.nii.gz",
+                     f"{fx}/out/gre/disp_pe_mm.nii.gz", f"{a.out}/gre_refinement_before_after.svg", ("as acquired", "corrected"))
     resolution_sweep(a.out)
     two_blip(a.fixtures, a.out)
     print("figures written to", a.out)

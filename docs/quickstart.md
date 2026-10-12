@@ -1,41 +1,42 @@
 # Quickstart
 
-You need an EPI image, its BIDS sidecar, a brain mask and a reference image. The examples use the
-test data bundle, which has all of these:
+You need an EPI image, its BIDS sidecar, a brain mask and a reference image on the same grid. The
+examples use the test data bundle, which has all of these:
 
 ```bash
 scripts/fetch_testdata.sh
-ls testdata/real/v1/ds002737
+ls testdata/real/v1/bold5000/ses-01
 ```
 
-This is a 2.4 mm single-band reference image from OpenNeuro ds002737 with the subject's T2w and a
-brain mask on the same grid. The sidecar values are in `meta.json`:
+This is a 2 mm spin-echo EPI from OpenNeuro BOLD5000 with the subject's T2w and a brain mask on its
+grid. The sidecar values are in `meta.json`:
 
 ```json
 "PhaseEncodingDirection": "j-",
-"TotalReadoutTime": 0.0525111
+"TotalReadoutTime": 0.0755984
 ```
 
 ## Fieldmap-less correction with a T2w
 
 ```bash
-D=testdata/real/v1/ds002737
-unpile fit --epi $D/sbref_ap.nii.gz --reference $D/t2w.nii.gz --mask $D/brain_mask.nii.gz \
-    --pe-dir j- --total-readout-time 0.0525111 \
-    --metric lncc --pose --lam-mm 60 --out out/sbref
+D=testdata/real/v1/bold5000/ses-01
+unpile fit --epi $D/se_ap.nii.gz --reference $D/t2w.nii.gz --mask $D/brain_mask.nii.gz \
+    --pe-dir j- --total-readout-time 0.0755984 \
+    --metric lncc --pose --lam-mm 60 --out out/se
 ```
 
 `--metric lncc` compares the two contrasts with local correlation. `--pose` fits a rigid position of
-the T2w at the same time as the field. The run takes about 40 s on a GPU and 6 minutes on four CPU
-cores. `out/sbref/` contains the field in Hz, the displacement in mm, the corrected image, the ITK
+the T2w at the same time as the field. The run takes about 30 s on a GPU and a few minutes on four
+CPU cores. `out/se/` contains the field in Hz, the displacement in mm, the corrected image, the ITK
 warp and the T2w pose as an ITK affine.
 
-```{figure} _static/fieldmapless_sbref_before_after.svg
-:alt: The single-band reference before and after correction, alternating, with the white-matter boundary from the T2w.
+```{figure} _static/fieldmapless_before_after.svg
+:alt: The spin-echo EPI before and after correction, alternating, with the white-matter boundary from the T2w.
 
-The image before and after correction, alternating every two seconds. The red lines are the
-white-matter boundary from a SynthSeg segmentation of the T2w. This run was fitted on a 1.8 mm grid;
-see {doc}`user/fieldmapless` for why.
+The image before and after correction, alternating every two seconds, through the slice where the
+displacement is largest. The red line is the white-matter boundary from a SynthSeg segmentation of
+the T2w. The field agrees with FSL topup's from the session's spin-echo pair at 0.85 correlation.
+When the T2w has smaller voxels than the EPI, fitting on a finer grid helps; see {doc}`user/fieldmapless`.
 ```
 
 ## Refining a fieldmap
@@ -55,6 +56,14 @@ unpile fit --epi $D/b0_AP.nii.gz --reference $D/T2w.nii.gz --mask $D/brain_mask.
 
 The log reports the position unpile found for the fieldmap. On this dataset the fieldmap was
 acquired after a 5.4° / 4 mm movement, and the fit recovers it to 0.8° / 0.6 mm.
+
+```{figure} _static/gre_refinement_before_after.svg
+:alt: The simulated b=0 before and after correction with the refined fieldmap, alternating, with the white-matter boundary.
+
+The simulated b=0 before and after correction with the refined fieldmap, alternating every two
+seconds. The red line is the white-matter boundary of the simulated subject. The displacement is
+2.7 mm at the median voxel and up to 17 mm at the front of the brain.
+```
 
 ## Applying the correction
 
