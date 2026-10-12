@@ -1,7 +1,7 @@
 # GRE fieldmap refinement
 
 A dual-echo gradient-echo fieldmap measures the off-resonance field directly, in Hz, and the
-[measured-fieldmap approach]({{ book }}#correction-step-by-step) in the book turns it into a
+[measured-fieldmap approach](https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion#correction-step-by-step) in the book turns it into a
 displacement with the readout time. Two things stand between that measurement and the EPI it is
 meant to correct:
 

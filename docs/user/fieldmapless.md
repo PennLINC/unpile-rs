@@ -1,7 +1,7 @@
 # Fieldmap-less correction
 
 When no fieldmap was acquired, the field has to come from the EPI and an undistorted reference. The
-book describes this as the [fieldmap-less approach]({{ book }}#correction-step-by-step): warp the
+book describes this as the [fieldmap-less approach](https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion#correction-step-by-step): warp the
 EPI along the phase-encoding axis until it matches an anatomical image. unpile does this with a
 physical forward model rather than a generic deformable registration: the estimated field
 displaces and stretches the undistorted image exactly as the readout does, including the

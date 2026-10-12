@@ -1,7 +1,7 @@
 # Opposite-polarity pairs
 
 Two images with reversed phase-encoding polarity contain the field between them: what is
-compressed in one is stretched in the other ([see it in the book]({{ book }}#see-it-the-blip-up-blip-down-pair)).
+compressed in one is stretched in the other ([see it in the book](https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion#see-it-the-blip-up-blip-down-pair)).
 FSL topup and TORTOISE DRBUDDI are the established tools for this case and qsiprep uses them.
 unpile supports it so that one binary covers every input a dataset may provide:
 

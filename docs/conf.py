@@ -15,12 +15,10 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.intersphinx",
 ]
-myst_enable_extensions = ["dollarmath", "colon_fence", "deflist", "substitution"]
+myst_enable_extensions = ["dollarmath", "colon_fence", "deflist"]
 myst_heading_anchors = 3
-# The diffusion book explains the physics; these pages say what unpile does with it.
-myst_substitutions = {
-    "book": "https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion",
-}
+# The diffusion book explains the physics; these pages say what unpile does with it and link to
+# https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion by anchor.
 intersphinx_mapping = {
     "qsiprep": ("https://qsiprep.readthedocs.io/en/latest", None),
 }

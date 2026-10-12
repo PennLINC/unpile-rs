@@ -8,7 +8,7 @@ Every claim in these pages rests on one of two kinds of evidence, and the pages 
 subject's anatomy with a known off-resonance field and known head movements, and writes the truth
 next to the data: the field, the undistorted b=0, and the rigid transforms it applied between the
 EPI and the anatomical or fieldmap acquisitions. The book's
-[artifact-free reference]({{ book }}#the-artifact-free-reference) is this undistorted b=0, and its
+[artifact-free reference](https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion#the-artifact-free-reference) is this undistorted b=0, and its
 chapter builds the same kind of distortion from the same simulator.
 
 unpile's integration tests run on two such fixtures, generated from the recipes in

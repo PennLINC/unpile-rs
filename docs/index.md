@@ -16,7 +16,7 @@ Pairs of opposite phase-encoding polarity are also supported ({doc}`user/opposit
 tool covers whatever a dataset provides.
 
 The physics of the artifact, why pile-up and stretching happen, and how the three families of
-correction relate are explained in the companion book, [Diffusion MRI, executed]({{ book }}); these
+correction relate are explained in the companion book, [Diffusion MRI, executed](https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion); these
 pages say what unpile does with that physics and what to expect from it. Every number quoted here
 comes from a run that is reproducible from the repository: simulated datasets with ground truth
 from [TRXScan](https://github.com/PennLINC/TRXScan), and a small bundle of OpenNeuro data
