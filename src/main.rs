@@ -55,10 +55,10 @@ enum Cmd {
     Fit {
         /// the distorted EPI image (a b=0 mean, an SBRef, a BOLD mean); every other image must be on its grid
         #[arg(long)]
-        obs: String,
-        /// second blip with the opposite polarity (two-blip mode; --reference is then ignored)
+        epi: String,
+        /// the same EPI acquired with the opposite phase-encoding direction (--reference is then ignored)
         #[arg(long)]
-        pa: Option<String>,
+        reverse_epi: Option<String>,
         /// undistorted reference on the EPI grid: same contrast (SynB0, a clean b=0) with --metric ssd, or a T2w with --metric lncc
         #[arg(long)]
         reference: Option<String>,
@@ -71,15 +71,15 @@ enum Cmd {
         /// two-blip mode: also estimate an intensity gain of the second image
         #[arg(long, default_value_t = false)]
         blip_gain: bool,
-        /// GRE fieldmap (Hz, on the EPI grid, our sign convention) used as a prior
+        /// GRE fieldmap in Hz on the EPI grid, used as a prior and refined against the EPI
         #[arg(long)]
-        gre: Option<String>,
-        /// which GRE terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta)
+        fieldmap: Option<String>,
+        /// which fieldmap terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta)
         #[arg(long, default_value = "pose,shim,delta")]
-        gre_refine: String,
-        /// ridge weight keeping the residual close to the GRE prior
+        fieldmap_refine: String,
+        /// ridge weight keeping the residual close to the fieldmap
         #[arg(long, default_value_t = 1.0)]
-        gre_ridge: f32,
+        fieldmap_ridge: f32,
         /// penalty in displacement units: lam = lam_mm * (TRT * vox_pe)^2 (overrides --lam)
         #[arg(long)]
         lam_mm: Option<f32>,
@@ -89,19 +89,16 @@ enum Cmd {
         /// output directory: field_hz, disp_pe_mm, corrected, sdc_warp (ITK), pose transforms, score.json
         #[arg(long)]
         out: String,
-        /// TotalReadoutTime of the EPI in seconds (from the BIDS sidecar)
-        #[arg(long)]
-        trt: f32,
+        /// TotalReadoutTime of the EPI in seconds, as in the BIDS sidecar
+        #[arg(long, alias = "trt")]
+        total_readout_time: f32,
         /// PE voxel size of the ACQUISITION (mm) when the images were resampled onto another grid:
         /// Hz x TRT is a shift in acquired voxels, so the shift per grid voxel scales by acq/grid
         #[arg(long)]
         acq_voxel_mm: Option<f32>,
-        /// voxel axis of phase encoding: 0, 1 or 2 for i, j, k of PhaseEncodingDirection
-        #[arg(long, default_value_t = 1)]
-        pe_axis: usize,
-        /// polarity: -1 for a PhaseEncodingDirection ending in "-" (j-), +1 otherwise; pass as --sign=-1
-        #[arg(long, default_value_t = -1.0)]
-        sign: f32,
+        /// PhaseEncodingDirection of the EPI, as in the BIDS sidecar: i, i-, j, j-, k or k-
+        #[arg(long)]
+        pe_dir: String,
         /// control-grid spacings in mm, coarse to fine
         #[arg(long, default_value = "24,12,6,3")]
         levels: String,
@@ -132,9 +129,9 @@ enum Cmd {
         /// field in Hz on the EPI grid (the file's own axis order)
         #[arg(long)]
         field: String,
-        /// distorted image to pull back along the field (writes pullback.nii.gz)
+        /// distorted EPI to pull back along the field (writes pullback.nii.gz)
         #[arg(long)]
-        obs: Option<String>,
+        epi: Option<String>,
         /// reference image to move by --pose (writes posed.nii.gz)
         #[arg(long)]
         reference: Option<String>,
@@ -144,15 +141,12 @@ enum Cmd {
         /// output directory
         #[arg(long)]
         out: String,
-        /// TotalReadoutTime of the EPI in seconds
+        /// TotalReadoutTime of the EPI in seconds, as in the BIDS sidecar
+        #[arg(long, alias = "trt")]
+        total_readout_time: f32,
+        /// PhaseEncodingDirection of the EPI, as in the BIDS sidecar: i, i-, j, j-, k or k-
         #[arg(long)]
-        trt: f32,
-        /// voxel axis of phase encoding
-        #[arg(long, default_value_t = 1)]
-        pe_axis: usize,
-        /// polarity, as for fit
-        #[arg(long, default_value_t = -1.0)]
-        sign: f32,
+        pe_dir: String,
     },
     /// Compare the operators with the PyTorch reference dumps in a testdata directory.
     Check {
@@ -160,6 +154,20 @@ enum Cmd {
         #[arg(long)]
         dir: String,
     },
+}
+
+/// BIDS PhaseEncodingDirection (i, i-, j, j-, k, k-) -> (voxel axis, polarity sign).
+fn parse_pe_dir(pe_dir: &str) -> Result<(usize, f32)> {
+    let (axis, sign) = match pe_dir.trim() {
+        "i" => (0, 1.0),
+        "i-" => (0, -1.0),
+        "j" => (1, 1.0),
+        "j-" => (1, -1.0),
+        "k" => (2, 1.0),
+        "k-" => (2, -1.0),
+        other => anyhow::bail!("--pe-dir must be one of i, i-, j, j-, k, k- (got {other:?})"),
+    };
+    Ok((axis, sign))
 }
 
 fn load_mask(path: &str) -> Result<Array3<bool>> {
@@ -365,21 +373,21 @@ fn main() -> Result<()> {
             );
         }
         Cmd::Fit {
-            obs,
-            pa,
+            epi: obs,
+            reverse_epi: pa,
             reference,
             pose,
             blip_pose,
             blip_gain,
-            gre,
-            gre_refine,
-            gre_ridge,
+            fieldmap: gre,
+            fieldmap_refine: gre_refine,
+            fieldmap_ridge: gre_ridge,
             lam_mm,
             mask,
             out,
-            trt,
-            pe_axis,
-            sign,
+            total_readout_time: trt,
+            pe_dir,
+
             levels,
             lam,
             iters,
@@ -391,6 +399,7 @@ fn main() -> Result<()> {
             acq_voxel_mm,
         } => {
             std::fs::create_dir_all(&out)?;
+            let (pe_axis, sign) = parse_pe_dir(&pe_dir)?;
             let ob = read3(&obs, None)?;
             // every use of trt below is "shift in grid voxels per Hz"; rescale once for a resampled grid
             let trt = match acq_voxel_mm {
@@ -668,14 +677,14 @@ fn main() -> Result<()> {
         }
         Cmd::Export {
             field,
-            obs,
+            epi: obs,
             reference,
             pose,
             out,
-            trt,
-            pe_axis,
-            sign,
+            total_readout_time: trt,
+            pe_dir,
         } => {
+            let (pe_axis, sign) = parse_pe_dir(&pe_dir)?;
             std::fs::create_dir_all(&out)?;
             let fld = read3(&field, None)?;
             let vox = zooms(&fld.header);

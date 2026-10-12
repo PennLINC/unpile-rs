@@ -146,23 +146,27 @@ def fieldmapless_sbref(real, real_out, out):
     fig.tight_layout()
     fig.savefig(f"{out}/fieldmapless_sbref.png", dpi=130)
     plt.close(fig)
-    # a two-frame flicker of the same slice: the shift is easier to see in motion than side by side
-    frames = []
-    for a, t in [(sb, "as acquired"), (corr, "corrected")]:
-        f2, ax = plt.subplots(figsize=(4.2, 4.6))
-        panel(ax, crop(axial(a, z), m2, 8), t, aspect=aspect)
-        overlay_edges(ax, e, aspect)
-        f2.tight_layout(pad=0.3)
-        f2.canvas.draw()
-        frames.append(np.asarray(f2.canvas.buffer_rgba())[..., :3].copy())
-        plt.close(f2)
-    try:
-        import imageio.v2 as imageio
-        imageio.mimsave(f"{out}/fieldmapless_sbref_flicker.gif", frames, duration=1.0, loop=0)
-    except ImportError:
-        from PIL import Image
-        ims = [Image.fromarray(f) for f in frames]
-        ims[0].save(f"{out}/fieldmapless_sbref_flicker.gif", save_all=True, append_images=ims[1:], duration=1000, loop=0)
+
+
+def before_after_svg(real, real_out, out):
+    """A nireports before/after view (the kind qsiprep's reports use): the acquired and the corrected
+    EPI alternate, with contours of the T2w's bright (CSF) tissue drawn on both."""
+    from nireports.reportlets.mosaic import plot_registration
+    from nireports.reportlets.utils import compose_view, cuts_from_bbox
+    from scipy import ndimage as ndi
+
+    before = nb.load(f"{real}/sbref_ap.nii.gz")
+    after = nb.load(f"{real_out}/corrected.nii.gz")
+    mask_img = nb.load(f"{real}/brain_mask.nii.gz")
+    mask = np.asarray(mask_img.dataobj) > 0
+    t2 = np.asarray(nb.load(f"{real}/t2w.nii.gz").dataobj, np.float32)
+    csf = (t2 > np.percentile(t2[mask], 72)) & mask
+    csf = ndi.binary_opening(csf, iterations=1)
+    contour = nb.Nifti1Image(csf.astype(np.uint8), mask_img.affine)
+    cuts = cuts_from_bbox(mask_img, cuts=5)
+    bg = plot_registration(before, "fixed-image", estimate_brightness=True, cuts=cuts, label="as acquired", contour=contour, compress="auto")
+    fg = plot_registration(after, "moving-image", estimate_brightness=True, cuts=cuts, label="corrected (T2w reference)", contour=contour, compress="auto")
+    compose_view(bg, fg, out_file=f"{out}/fieldmapless_sbref_before_after.svg")
 
 
 def resolution_sweep(out):
@@ -218,6 +222,7 @@ if __name__ == "__main__":
     os.makedirs(a.out, exist_ok=True)
     gre_refinement(a.fixtures, a.out)
     fieldmapless_sbref(a.testdata_real, a.real_out, a.out)
+    before_after_svg(a.testdata_real, a.real_out, a.out)
     resolution_sweep(a.out)
     two_blip(a.fixtures, a.out)
     print("figures written to", a.out)

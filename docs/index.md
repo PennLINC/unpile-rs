@@ -1,33 +1,33 @@
 # unpile
 
-unpile corrects susceptibility distortion in echo-planar images (EPI): diffusion b=0 volumes,
-single-band references, BOLD means. It is a single Rust binary that writes its correction as ITK
-transforms, so it slots into qsiprep and any ANTs-based pipeline. It is built for two situations:
+unpile corrects susceptibility distortion in echo-planar images: diffusion b=0 volumes, single-band
+reference images, BOLD means. It is one Rust binary. It writes the correction as ITK transforms, so
+qsiprep and any ANTs-based pipeline can apply it.
 
-- **A fieldmap was measured, but not where the EPI is.** A dual-echo gradient-echo (GRE) fieldmap
-  acquired after the subject moved, in another session, or under a different shim is brought onto
-  the EPI by estimating its rigid pose, a shim polynomial and a smooth residual against the EPI
-  itself, rather than applied as acquired. See {doc}`user/gre-refinement`.
-- **No fieldmap at all.** The field is estimated from the EPI and an anatomical reference: a
-  synthetic undistorted b=0 (SynB0), or the subject's T2w with a joint rigid pose, through a
-  physical forward model of the distortion. See {doc}`user/fieldmapless`.
+It is built for two situations:
 
-Pairs of opposite phase-encoding polarity are also supported ({doc}`user/opposite-polarity`), so one
-tool covers whatever a dataset provides.
+- **The fieldmap is imperfect.** A dual-echo gradient-echo fieldmap from the same session rarely
+  lines up with the EPI exactly. The subject moved between the two scans, the shim was not quite
+  the same, and phase unwrapping leaves small errors. unpile keeps the fieldmap as a prior and
+  refines its position, a low-order shim term and a smooth residual against the EPI itself. See
+  {doc}`user/gre-refinement`.
+- **There is no fieldmap.** unpile estimates the field from the EPI and an undistorted reference: a
+  synthetic b=0 from SynB0, or the subject's T2w with a rigid pose fitted at the same time. See
+  {doc}`user/fieldmapless`.
 
-The physics of the artifact, why pile-up and stretching happen, and how the three families of
-correction relate are explained in the companion book, [Diffusion MRI, executed](https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion); these
-pages say what unpile does with that physics and what to expect from it. Every number quoted here
-comes from a run that is reproducible from the repository: simulated datasets with ground truth
-from [TRXScan](https://github.com/PennLINC/TRXScan), and a small bundle of OpenNeuro data
-({doc}`user/validation`).
+Pairs of opposite phase-encoding direction are also supported ({doc}`user/opposite-polarity`).
+
+The [susceptibility chapter](https://pennlinc.github.io/diffusion-book/book/preprocessing/susceptibility-distortion) of *Diffusion MRI, executed* explains the artifact itself. These
+pages cover what unpile does and what to expect. All numbers come from runs you can repeat: simulated
+data with ground truth from [TRXScan](https://github.com/PennLINC/TRXScan) and a small set of
+OpenNeuro data ({doc}`user/validation`).
 
 ```{figure} _static/gre_refinement.png
-:alt: GRE refinement on a simulated fixture: the fieldmap as acquired after a head movement, the refined field, the true field and their difference.
+:alt: A simulated fieldmap acquired after a head movement, the refined field, the true field and the difference.
 
-A measured fieldmap acquired after a 5.4° / 4 mm head movement (left), refined by unpile against the
-EPI (second), the simulator's true field (third) and the residual (right). The pose is recovered to
-0.8° / 0.6 mm and the field to 0.998 correlation.
+A simulated fieldmap acquired after a 5.4° / 4 mm head movement (left), the same fieldmap after
+unpile refined it against the EPI (second), the true field (third) and the difference (right).
+The movement is recovered to 0.8° / 0.6 mm and the field to 0.998 correlation.
 ```
 
 ```{toctree}

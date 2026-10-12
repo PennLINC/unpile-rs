@@ -3,7 +3,7 @@
 ## Build and test
 
 ```bash
-cargo build --release --features wgpu          # the binary, with the GPU backend
+cargo build --release --features wgpu          # the binary with the GPU backend
 cargo test --release --features wgpu           # unit tests
 ./target/release/unpile check --dir testdata/rpe   # operators vs the PyTorch dumps
 python scripts/make_fixtures.py phasediff rpe  # TRXScan fixtures into testdata/fixtures

@@ -1,83 +1,81 @@
 # Quickstart
 
-Three runs that take under a minute each on a GPU and a few minutes on four CPU cores. The first two
-use a simulated dataset with ground truth; the third applies a correction with ANTs.
+You need an EPI image, its BIDS sidecar, a brain mask and a reference image. The examples use the
+test data bundle, which has all of these:
 
-## Refine a GRE fieldmap
+```bash
+scripts/fetch_testdata.sh
+ls testdata/real/v1/ds002737
+```
 
-Generate the `phasediff` fixture (TRXScan simulates a 3 mm diffusion scan, a T1w, a T2w and a dual-echo
-GRE fieldmap, with the fieldmap acquired after a recorded head movement) and derive unpile's inputs:
+This is a 2.4 mm single-band reference image from OpenNeuro ds002737 with the subject's T2w and a
+brain mask on the same grid. The sidecar values are in `meta.json`:
+
+```json
+"PhaseEncodingDirection": "j-",
+"TotalReadoutTime": 0.0525111
+```
+
+## Fieldmap-less correction with a T2w
+
+```bash
+D=testdata/real/v1/ds002737
+unpile fit --epi $D/sbref_ap.nii.gz --reference $D/t2w.nii.gz --mask $D/brain_mask.nii.gz \
+    --pe-dir j- --total-readout-time 0.0525111 \
+    --metric lncc --pose --lam-mm 60 --out out/sbref
+```
+
+`--metric lncc` compares the two contrasts with local correlation. `--pose` fits a rigid position of
+the T2w at the same time as the field. The run takes about 40 s on a GPU and 6 minutes on four CPU
+cores. `out/sbref/` contains the field in Hz, the displacement in mm, the corrected image, the ITK
+warp and the T2w pose as an ITK affine.
+
+```{figure} _static/fieldmapless_sbref_before_after.svg
+:alt: The single-band reference before and after correction, alternating, with contours of the T2w's bright tissue.
+
+The image before and after correction, alternating. The red contours are the bright tissue of the T2w.
+This run was fitted on a 1.8 mm grid; see {doc}`user/fieldmapless` for why.
+```
+
+## Refining a fieldmap
+
+With a fieldmap from the same session, pass it in Hz on the EPI grid and give a reference as well.
+The example uses a simulated dataset from TRXScan, which has a b=0, a T2w and a GRE fieldmap:
 
 ```bash
 pip install "trxscan[trx]==0.2.1" nibabel nilearn scikit-image scipy
 python scripts/make_fixtures.py phasediff
-ls testdata/fixtures/phasediff/unpile
-```
-
-`b0_AP.nii.gz` is the mean b=0, `gre_hz.nii.gz` the unwrapped fieldmap in Hz resampled onto the EPI
-grid, `clean_b0.nii.gz` the simulator's undistorted b=0, `truth_field.nii.gz` the true field and
-`meta.json` the readout time and polarity from the sidecars. Fit with the GRE as a prior:
-
-```bash
 D=testdata/fixtures/phasediff/unpile
-unpile fit --obs $D/b0_AP.nii.gz --reference $D/clean_b0.nii.gz --mask $D/brain_mask.nii.gz \
-    --trt 0.055675 --pe-axis 1 --sign=-1 --lam-mm 5 \
-    --gre $D/gre_hz.nii.gz --gre-refine pose,shim,delta \
-    --truth-field $D/truth_field.nii.gz \
-    --truth-xfm $D/../derivatives/trxscan/sub-pdiff/fmap/sub-pdiff_acq-gre_from-fmap_to-dwi_mode-image_desc-truth_xfm.txt \
-    --out out/gre
+unpile fit --epi $D/b0_AP.nii.gz --reference $D/T2w.nii.gz --mask $D/brain_mask.nii.gz \
+    --pe-dir j- --total-readout-time 0.055675 \
+    --fieldmap $D/gre_hz.nii.gz --fieldmap-refine pose,shim,delta \
+    --metric lncc --pose --lam-mm 60 --out out/fieldmap
 ```
 
-The log ends with the two scores the fixture makes possible, the recovered fieldmap pose against
-the recorded movement and the field against the truth:
+The log reports the position unpile found for the fieldmap. On this dataset the fieldmap was
+acquired after a 5.4° / 4 mm movement, and the fit recovers it to 0.8° / 0.6 mm.
 
-```text
-SCORE gre_pose vs truth: residual rotation 0.77 deg, translation 0.58 mm at the origin (identity would leave 5.42 deg, 4.03 mm)
-SCORE field corr 0.998 slope 0.991 rms 0.24 of 4.46 mm
-```
+## Applying the correction
 
-`out/gre/` holds the field (`field_hz.nii.gz`), the displacement in mm, the corrected EPI, the ITK
-warp and the fieldmap's pose as an ITK affine. {doc}`user/gre-refinement` explains the terms.
-
-## Correct without a fieldmap
-
-Same fixture, now with the T2w as the reference. The T2w was acquired after a different recorded
-movement (7.1° / 5.1 mm), so the joint pose has something to find:
+The warp is a standard ITK displacement field:
 
 ```bash
-unpile fit --obs $D/b0_AP.nii.gz --reference $D/T2w.nii.gz --mask $D/brain_mask.nii.gz \
-    --trt 0.055675 --pe-axis 1 --sign=-1 --metric lncc --window 5 --pose --lam 1 \
-    --truth-field $D/truth_field.nii.gz \
-    --truth-xfm $D/../derivatives/trxscan/sub-pdiff/anat/sub-pdiff_from-T2w_to-dwi_mode-image_desc-truth_xfm.txt \
-    --out out/t2w
+antsApplyTransforms -d 3 -i epi.nii.gz -r epi.nii.gz -t out/sbref/sdc_warp.nii.gz \
+    -o epi_unwarped.nii.gz -n BSpline
 ```
 
-```text
-SCORE pose vs truth: residual rotation 1.30 deg, translation 2.04 mm at the origin (identity would leave 7.14 deg, 5.08 mm)
-```
+The warp moves the signal back. The intensity change from pile-up and stretching is a separate
+multiplication by the Jacobian of the displacement, which qsiprep applies with its own module.
+{doc}`user/inputs-outputs` has the conventions.
 
-On real data the T2w fit works best on a grid finer than the EPI; {doc}`user/fieldmapless` has the
-rule and the numbers, and the figure below is a real 2.4 mm single-band reference from OpenNeuro.
+## Preparing your own data
 
-```{figure} _static/fieldmapless_sbref.png
-:alt: A single-band reference before and after fieldmap-less correction with the T2w's edges overlaid, the T2w, and the estimated field next to a topup field from a spin-echo pair.
+unpile does not make the brain mask, resample the anatomical image, or unwrap a fieldmap; qsiprep
+does these before calling it. For a stand-alone run:
 
-A 2.4 mm SBRef (OpenNeuro ds002737) corrected against the subject's T2w with a joint pose, fitted on
-a 1.8 mm grid, with the T2w's edges drawn on both EPI panels: the frontal and temporal cortex moves
-onto them. Bottom: unpile's field next to FSL topup's field from the spin-echo pair of the same
-session, both with their mean removed. The shapes agree (0.74 correlation) but unpile recovers
-about half the amplitude in the frontal and temporal hot spots, which is what the T2w path's slope
-of 0.5 in {doc}`user/fieldmapless` means.
-```
+- Brain mask: SynthStrip or `niimath -skullstrip` on the EPI.
+- T2w on the EPI grid: a rigid registration with `antsRegistration`, then `antsApplyTransforms -r epi.nii.gz`.
+- Fieldmap in Hz on the EPI grid: unwrap the phase difference, divide by 2π ΔTE, register the
+  magnitude image to the EPI and resample.
 
-## Apply the correction with ANTs
-
-The warp is a standard ITK displacement field, so any image on the EPI grid is corrected with:
-
-```bash
-antsApplyTransforms -d 3 -i epi.nii.gz -r epi.nii.gz -t out/gre/sdc_warp.nii.gz -o epi_unwarped.nii.gz -n BSpline
-```
-
-The warp moves the signal back; the intensity rescaling for pile-up and stretching (the Jacobian of
-the displacement along the phase-encoding axis) is a separate multiplication, which qsiprep applies
-with its own Jacobian module. {doc}`user/inputs-outputs` gives the conventions.
+Every image must share the EPI's grid; unpile checks and refuses otherwise.

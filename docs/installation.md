@@ -6,10 +6,9 @@
 pip install unpile
 ```
 
-The wheel contains one statically linked binary, `unpile`, with the CPU backend (the default) and
-the wgpu GPU backend. It needs nothing else on a CPU-only machine. For GPU use it loads the
-system's Vulkan loader (Linux) or Metal (macOS) at run time; see {doc}`user/deployment` for what
-containers and HPC nodes need.
+The wheel contains one binary, `unpile`. It runs on the CPU by default and needs nothing else. With
+a GPU it uses Vulkan on Linux or Metal on macOS; {doc}`user/deployment` lists what a container needs
+for that.
 
 ## From source
 
@@ -20,11 +19,10 @@ cargo build --release --features wgpu
 ./target/release/unpile --help
 ```
 
-The toolchain is pinned by `rust-toolchain.toml`. Leave out `--features wgpu` for a CPU-only
-binary (10 MB instead of 60 MB). The `itk` feature, on by default, adds the reader for ITK
-`Composite.h5` and `.txt` transforms used by `--truth-xfm` and the pose output.
+The Rust toolchain is pinned by `rust-toolchain.toml`. Without `--features wgpu` the binary is
+CPU-only and 10 MB instead of 60 MB.
 
 ## Python
 
-There is no Python module yet. qsiprep and other pipelines call the binary as a subprocess; the
-command lines in {doc}`quickstart` are what such a call looks like.
+There is no Python module. qsiprep calls the binary as a subprocess. The commands in
+{doc}`quickstart` are what that call looks like.

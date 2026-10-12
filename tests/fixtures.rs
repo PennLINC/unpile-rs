@@ -34,15 +34,14 @@ fn fit(dir: &Path, out: &str, extra: &[&str]) -> Value {
     let out_dir = dir.join("out").join(out);
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_unpile"));
     cmd.args(["--device", "flex", "fit"])
-        .arg("--obs")
+        .arg("--epi")
         .arg(dir.join("b0_AP.nii.gz"))
         .arg("--mask")
         .arg(dir.join("brain_mask.nii.gz"))
-        .arg("--trt")
+        .arg("--total-readout-time")
         .arg(ap["trt"].as_f64().unwrap().to_string())
-        .arg("--pe-axis")
-        .arg(ap["pe_axis"].as_u64().unwrap().to_string())
-        .arg(format!("--sign={}", ap["sign"].as_f64().unwrap()))
+        .arg("--pe-dir")
+        .arg(ap["pe"].as_str().unwrap())
         .args(["--levels", "24,12,6", "--iters", "20"])
         .arg("--truth-field")
         .arg(dir.join("truth_field.nii.gz"))
@@ -112,9 +111,9 @@ fn phasediff_gre_refinement() {
             dir.join("clean_b0.nii.gz").to_str().unwrap(),
             "--lam-mm",
             "5",
-            "--gre",
+            "--fieldmap",
             dir.join("gre_hz.nii.gz").to_str().unwrap(),
-            "--gre-refine",
+            "--fieldmap-refine",
             "pose,shim,delta",
             "--truth-xfm",
             truth_xfm.to_str().unwrap(),
@@ -233,7 +232,7 @@ fn rpe_two_blip() {
         &dir,
         "pepolar",
         &[
-            "--pa",
+            "--reverse-epi",
             dir.join("b0_PA.nii.gz").to_str().unwrap(),
             "--lam-mm",
             "5",
