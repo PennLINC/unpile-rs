@@ -83,3 +83,47 @@ def test_prepare_refuses_non_las_and_reorient_is_explicit(tmp_path):
     assert pe_dir == "j-"  # an x flip does not touch a j direction
     p = unpile.prepare(las_path, tmp_path / "prep", mask=d / "brain_mask.nii.gz", pe_dir=pe_dir)
     assert unpile.axcodes(p["epi"]) == ("L", "A", "S") and p["pe_dir"] == "j-"
+
+
+@pytest.mark.skipif("UNPILE_FIXTURES" not in os.environ, reason="needs the TRXScan fixtures")
+def test_preflight_catches_shifted_and_cropped_references(tmp_path):
+    nb = pytest.importorskip("nibabel")
+    np = pytest.importorskip("numpy")
+    d = Path(os.environ["UNPILE_FIXTURES"]) / "phasediff" / "unpile"
+    ok = unpile.preflight(d / "b0_AP.nii.gz", d / "brain_mask.nii.gz", reference=d / "clean_b0.nii.gz", fieldmap=d / "gre_hz.nii.gz", warn=False)
+    assert ok["reference"]["com_offset_mm"] < 3 and ok["reference"]["coverage_of_mask"] > 0.95 and not ok["warnings"], ok
+    # the same reference with its content shifted 20 mm along y, resampled back onto the grid
+    from nilearn.image import resample_to_img
+
+    ref = nb.load(d / "clean_b0.nii.gz")
+    moved_aff = ref.affine.copy()
+    moved_aff[1, 3] += 20.0
+    shifted = resample_to_img(nb.Nifti1Image(np.asarray(ref.dataobj), moved_aff), ref, interpolation="continuous")
+    nb.save(shifted, tmp_path / "shifted.nii.gz")
+    with pytest.warns(UserWarning, match="centre of mass"):
+        r = unpile.preflight(d / "b0_AP.nii.gz", d / "brain_mask.nii.gz", reference=tmp_path / "shifted.nii.gz")
+    assert r["reference"]["com_offset_mm"] > 10
+    # a reference with the top third of the brain zeroed
+    data = np.asarray(ref.dataobj).copy()
+    data[:, :, data.shape[2] * 2 // 3 :] = 0
+    nb.save(nb.Nifti1Image(data, ref.affine), tmp_path / "cropped.nii.gz")
+    with pytest.warns(UserWarning, match="field of view may stop short"):
+        r = unpile.preflight(d / "b0_AP.nii.gz", d / "brain_mask.nii.gz", reference=tmp_path / "cropped.nii.gz")
+    assert r["reference"]["coverage_of_mask"] < 0.95
+
+
+@pytest.mark.skipif("UNPILE_FIXTURES" not in os.environ, reason="needs the TRXScan fixtures")
+def test_prepare_fov_overlap(tmp_path):
+    nb = pytest.importorskip("nibabel")
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("nilearn")
+    d = Path(os.environ["UNPILE_FIXTURES"]) / "phasediff" / "unpile"
+    # a T2w whose header puts it 200 mm away from the EPI: no overlap, prepare must refuse it
+    t2 = nb.load(d / "T2w.nii.gz")
+    far = t2.affine.copy()
+    far[0, 3] += 200.0
+    nb.save(nb.Nifti1Image(np.asarray(t2.dataobj), far), tmp_path / "far.nii.gz")
+    with pytest.raises(ValueError, match="field of view contains only"):
+        unpile.prepare(d / "b0_AP.nii.gz", tmp_path / "prep", mask=d / "brain_mask.nii.gz", reference=tmp_path / "far.nii.gz", pe_dir="j-")
+    p = unpile.prepare(d / "b0_AP.nii.gz", tmp_path / "prep2", mask=d / "brain_mask.nii.gz", reference=d / "T2w.nii.gz", pe_dir="j-")
+    assert p["reference_fov_overlap"] > 0.99

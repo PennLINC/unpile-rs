@@ -92,6 +92,7 @@ def fit(
         raise ValueError("pass pe_dir and total_readout_time, or a sidecar that has them")
     try:
         warn_if_not_las(epi)
+        preflight(epi, mask, reference=reference, fieldmap=fieldmap, reverse_epi=reverse_epi)
     except ImportError:
         pass
     out = Path(out_dir)
@@ -243,6 +244,104 @@ def reorient(image: PathLike, orientation: str = "LAS", *, pe_dir: str | None = 
     return out_path, new_dir
 
 
+def preflight(
+    epi: PathLike,
+    mask: PathLike,
+    *,
+    reference: PathLike | None = None,
+    fieldmap: PathLike | None = None,
+    reverse_epi: PathLike | None = None,
+    max_com_offset_mm: float = 10.0,
+    min_coverage: float = 0.95,
+    warn: bool = True,
+) -> dict[str, Any]:
+    """Sanity checks before a fit, for the mistakes the binary cannot see.
+
+    Reports, per input: that it is on the EPI grid; its coverage of the brain mask (the fraction of
+    mask voxels where it has signal; a fieldmap or anatomical whose field of view stops short of the
+    brain shows up here); and, for the reference and the reverse-polarity image, the distance
+    between its centre of mass and the EPI's inside the mask, which is large when the reference was
+    never registered or is the wrong file. Also the mask volume and NaNs. Warnings by default;
+    the returned dict has the numbers. Needs nibabel.
+    """
+    import warnings
+
+    import nibabel as nb
+    import numpy as np
+
+    def load(p):
+        img = nb.load(str(p))
+        return img, np.asarray(img.dataobj, np.float32).squeeze()
+
+    def com(data, weights_mask, affine):
+        w = np.where(weights_mask, np.clip(data, 0, None), 0.0)
+        if w.sum() <= 0:
+            return None
+        idx = np.array(np.nonzero(weights_mask), float)
+        c = (idx * w[weights_mask]).sum(axis=1) / w[weights_mask].sum()
+        return (affine @ np.append(c, 1.0))[:3]
+
+    epi_img, epi_d = load(epi)
+    mask_img, mask_d = load(mask)
+    m = mask_d > 0.5
+    report: dict[str, Any] = {"warnings": []}
+
+    def warn_(msg):
+        report["warnings"].append(msg)
+        if warn:
+            warnings.warn(msg, stacklevel=3)
+
+    vol_cm3 = float(m.sum() * np.prod(mask_img.header.get_zooms()[:3]) / 1000.0)
+    report["mask_volume_cm3"] = vol_cm3
+    if m.sum() == 0:
+        raise ValueError("the brain mask is empty")
+    if not 400 <= vol_cm3 <= 2200:
+        warn_(f"the brain mask is {vol_cm3:.0f} cm3, outside the 400-2200 cm3 a head should give; check it is a brain mask on the EPI grid")
+    if not np.isfinite(epi_d).all():
+        warn_("the EPI contains NaN or infinite values")
+    epi_com = com(epi_d, m, epi_img.affine)
+    report["epi_com_mm"] = None if epi_com is None else [float(v) for v in epi_com]
+    for name, path in (("reference", reference), ("fieldmap", fieldmap), ("reverse_epi", reverse_epi)):
+        if path is None:
+            continue
+        img, d = load(path)
+        entry: dict[str, Any] = {}
+        same_grid = img.shape[:3] == epi_img.shape[:3] and np.allclose(img.affine, epi_img.affine, atol=1e-2)
+        entry["on_epi_grid"] = bool(same_grid)
+        if not same_grid:
+            warn_(f"{name} is not on the EPI grid (shape {img.shape[:3]} vs {epi_img.shape[:3]}); unpile.prepare puts it there")
+            report[name] = entry
+            continue
+        finite = np.isfinite(d)
+        if not finite.all():
+            warn_(f"{name} contains NaN or infinite values")
+        signal = finite & (np.abs(d) > 0)
+        coverage = float(signal[m].mean())
+        entry["coverage_of_mask"] = coverage
+        if coverage < min_coverage:
+            warn_(f"{name} has signal in only {100 * coverage:.0f}% of the brain mask; its field of view may stop short of the brain")
+        if name in ("reference", "reverse_epi"):
+            # the input's own signal within a generous neighbourhood of the brain, so that a shifted
+            # or wrong image moves the centre of mass instead of being clipped by the mask
+            from scipy import ndimage as ndi
+
+            near = ndi.binary_dilation(m, iterations=8)
+            strong = finite & (d > 0.15 * np.percentile(d[m & finite], 99)) if (m & finite).any() else finite
+            c = com(d, near & strong, img.affine)
+            if c is not None and epi_com is not None:
+                off = float(np.linalg.norm(c - epi_com))
+                entry["com_offset_mm"] = off
+                if off > max_com_offset_mm:
+                    warn_(f"{name}'s centre of mass is {off:.1f} mm from the EPI's inside the brain mask; a registered image should be within a few mm, so check that it is the right file and was registered to the EPI")
+        if name == "fieldmap":
+            rms = float(np.sqrt(np.mean(d[m & finite] ** 2)))
+            entry["rms_hz"] = rms
+            if not 1.0 <= rms <= 300.0:
+                warn_(f"the fieldmap's rms inside the brain is {rms:.1f} Hz; a field in Hz is usually 10-100 Hz rms, so check its units")
+        report[name] = entry
+    return report
+
+
 def check(testdata_dir: PathLike, *, device: str = "flex") -> str:
     """Run the operator check against the stored PyTorch dumps; returns its report."""
     return run(["check", "--dir", str(testdata_dir)], device=device).stdout
@@ -299,6 +398,28 @@ def prepare(
     paths: dict[str, Any] = {"acq_voxel_mm": acq_voxel, "pe_dir": pe_dir}
     nb.save(target, str(out / "epi.nii.gz"))
     paths["epi"] = out / "epi.nii.gz"
+    # field-of-view overlap: how much of the EPI's brain (or, without a mask, its volume) each input covers
+    import warnings
+
+    if mask is not None:
+        mk = nb.load(str(mask))
+        inside = np.array(np.nonzero(np.asarray(mk.dataobj) > 0.5), float)
+        world = mk.affine @ np.vstack([inside, np.ones(inside.shape[1])])
+    else:
+        corners = np.array(np.meshgrid(*[[0, n - 1] for n in epi_img.shape[:3]], indexing="ij")).reshape(3, -1).astype(float)
+        world = epi_img.affine @ np.vstack([corners, np.ones(corners.shape[1])])
+    for name, src in (("mask", mask), ("reference", reference), ("fieldmap", fieldmap), ("reverse_epi", reverse_epi)):
+        if src is None or name == "mask":
+            continue
+        img = nb.load(str(src))
+        vox = np.linalg.inv(img.affine) @ world
+        ok = np.all((vox[:3] >= -0.5) & (vox[:3] <= np.array(img.shape[:3])[:, None] - 0.5), axis=0)
+        overlap = float(ok.mean())
+        paths[f"{name}_fov_overlap"] = overlap
+        if overlap < 0.5:
+            raise ValueError(f"{name}'s field of view contains only {100 * overlap:.0f}% of the EPI's brain; check that it is the right file and that its header is right")
+        if overlap < 0.95:
+            warnings.warn(f"{name}'s field of view contains only {100 * overlap:.0f}% of the EPI's brain", stacklevel=2)
     for name, src, interp in (("mask", mask, "nearest"), ("reference", reference, "continuous"), ("fieldmap", fieldmap, "continuous"), ("reverse_epi", reverse_epi, "continuous")):
         if src is None:
             continue

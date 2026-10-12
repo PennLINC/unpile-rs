@@ -18,7 +18,16 @@ The direction refers to the voxel axes of the image as stored, the same way the 
 no conversion is needed. If the images were resampled onto a different grid, add `--acq-voxel-mm`
 with the acquired phase-encoding voxel size ({doc}`fieldmapless`).
 
-## Checking the axes
+## Checking the inputs
+
+`unpile.preflight(epi, mask, reference=..., fieldmap=..., reverse_epi=...)` runs before every fit
+from Python and warns about the mistakes the binary cannot see: an input that is not on the EPI
+grid; a reference or fieldmap with signal in less than 95 % of the brain mask, which is what a
+field of view that stops short of the brain looks like; a reference or reverse-polarity image whose
+centre of mass sits more than 10 mm from the EPI's, which is what an unregistered or wrong file
+looks like; a fieldmap whose rms is not in the range a field in Hz should have; an implausible mask
+volume; NaNs. `unpile.prepare` adds the check that applies before resampling: how much of the
+EPI's brain each input's field of view contains, warning below 95 % and refusing below 50 %.
 
 qsiprep and the tools it combines unpile with work on LAS+ images. unpile itself follows the
 image's own affine, so it runs on any orientation, but `--pe-dir` refers to the voxel axes of the

@@ -22,7 +22,7 @@ Documentation = "https://unpile.readthedocs.io"
 
 [project.optional-dependencies]
 # `unpile.prepare` resamples inputs onto the EPI grid
-prep = ["nibabel>=5", "nilearn>=0.10", "numpy>=1.24"]
+prep = ["nibabel>=5", "nilearn>=0.10", "numpy>=1.24", "scipy>=1.10"]
 
 [tool.maturin]
 # the binary is packaged as a console script and the `unpile` Python package next to it wraps it
