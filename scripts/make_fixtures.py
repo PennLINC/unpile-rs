@@ -2,7 +2,7 @@
 
     python scripts/make_fixtures.py [name ...]      (default: phasediff rpe; dest: $UNPILE_FIXTURES or testdata/fixtures)
 
-Needs `pip install "trxscan==<TRXSCAN_VERSION>" nibabel nilearn scikit-image scipy`; the phantom is fetched by TRXScan.
+Needs `pip install "trxscan[trx]==<TRXSCAN_VERSION>" nibabel nilearn scikit-image scipy`; the phantom is fetched by TRXScan.
 """
 import os
 import shutil
