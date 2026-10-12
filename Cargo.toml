@@ -3,7 +3,7 @@ name = "unpile"
 version = "0.1.0"
 edition = "2021"
 description = "Susceptibility distortion correction for EPI with a mass-conserving pushforward model (Rust port of the unpile prototype)"
-license = "BSD-3-Clause"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/PennLINC/unpile-rs"
 readme = "README.md"
 

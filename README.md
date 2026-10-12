@@ -110,3 +110,12 @@ differently).
 The `itk` feature (default) pulls `itk-transforms-rs`, whose HDF5 reader builds a static HDF5;
 WebAssembly builds use `--no-default-features --features wgpu` (the warp writer needs nothing
 beyond `nifti`, so only the affine output and `--truth-xfm` go away).
+
+## License
+
+Dual-licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.

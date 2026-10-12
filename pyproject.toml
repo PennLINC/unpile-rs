@@ -6,13 +6,14 @@ build-backend = "maturin"
 name = "unpile"
 description = "Susceptibility distortion correction for EPI: GRE fieldmap refinement and fieldmap-less correction against an anatomical reference"
 readme = "README.md"
-license = { text = "BSD-3-Clause" }
+license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.9"
 dynamic = ["version"]
 classifiers = [
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
-    "License :: OSI Approved :: BSD License",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
 ]
 
 [project.urls]
