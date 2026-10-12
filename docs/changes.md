@@ -1,6 +1,6 @@
 # Changes
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-10-12)
 
 - First release: GRE fieldmap refinement (pose, shim, residual), fieldmap-less correction against
   SynB0 or a T2w with a joint pose, opposite-polarity pairs; ITK warp and pose outputs; CPU backend
