@@ -123,4 +123,4 @@ readout time and is not a matched two-blip partner; it is kept for reference onl
 - Reference values are recorded in `tests/fixtures/bounds.toml` with a tolerance per metric, so a
   regression is reported against a number, not a rerun. First values (T2w fieldmap-less vs the SE
   TOPUP field): ds002737 SBRef 0.651 / 0.41 / 1.84 mm, BOLD5000 ses-01 0.863 / 0.66 / 1.54 mm.
-- Not redistributable, local benchmarks only: CRASH and CSDSI2 (HBCD).
+- Local only: CRASH (not redistributable) and CSDSI2 (HBCD protocol; used for figures, not in the bundle).

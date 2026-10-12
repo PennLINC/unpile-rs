@@ -37,6 +37,9 @@ oblique grid (ds002737), and two sessions of spin-echo and gradient-echo pairs w
 Without truth, the tests on these check agreement with the measured fieldmap, consistency between
 contrasts, and regression bounds on recorded values (`tests/fixtures/bounds.toml`).
 
+The 1.7 mm diffusion example in the figures (HBCD protocol, 92 ms readout, same-shim GRE, T2w)
+appears in the figures only; it is not part of the bundle.
+
 ## Operator check
 
 `unpile check` compares each operator of the forward model with dumps from the PyTorch prototype
