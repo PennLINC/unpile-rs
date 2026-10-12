@@ -21,7 +21,10 @@ pub fn laplacian_neg(x: Tensor<3>) -> Tensor<3> {
         let xp = Tensor::cat(vec![x.clone().slice(r_lo), x.clone().slice(r_last)], ax);
         let xm = Tensor::cat(vec![x.clone().slice(r_first), x.clone().slice(r_hi)], ax);
         let term = x.clone() * 2.0 - xp - xm;
-        out = Some(match out { Some(o) => o + term, None => term });
+        out = Some(match out {
+            Some(o) => o + term,
+            None => term,
+        });
     }
     out.unwrap()
 }
@@ -36,7 +39,13 @@ pub fn adjoint<F: Fn(Tensor<3>) -> Tensor<3>>(op: F, like: &Tensor<3>, r: Tensor
 
 /// Minimise sum_k ||A_k x - y_k||^2 + ridge ||x||^2 + grad_reg ||grad x||^2 by CG.
 pub fn cg_solve<A: Fn(Tensor<3>, usize) -> Tensor<3>, At: Fn(Tensor<3>, usize) -> Tensor<3>>(
-    apply_a: A, apply_at: At, rhs: &[Tensor<3>], x0: Tensor<3>, n_iter: usize, ridge: f32, grad_reg: f32,
+    apply_a: A,
+    apply_at: At,
+    rhs: &[Tensor<3>],
+    x0: Tensor<3>,
+    n_iter: usize,
+    ridge: f32,
+    grad_reg: f32,
 ) -> Tensor<3> {
     let normal = |x: Tensor<3>| {
         let mut out = x.clone() * ridge;
@@ -51,7 +60,10 @@ pub fn cg_solve<A: Fn(Tensor<3>, usize) -> Tensor<3>, At: Fn(Tensor<3>, usize) -
     let mut b: Option<Tensor<3>> = None;
     for (k, y) in rhs.iter().enumerate() {
         let t = apply_at(y.clone(), k);
-        b = Some(match b { Some(acc) => acc + t, None => t });
+        b = Some(match b {
+            Some(acc) => acc + t,
+            None => t,
+        });
     }
     let b = b.unwrap();
     let mut x = x0;
@@ -60,7 +72,10 @@ pub fn cg_solve<A: Fn(Tensor<3>, usize) -> Tensor<3>, At: Fn(Tensor<3>, usize) -
     let mut rs = (r.clone() * r.clone()).sum().into_scalar::<f32>();
     for _ in 0..n_iter {
         let ap = normal(p.clone());
-        let pap = (p.clone() * ap.clone()).sum().into_scalar::<f32>().max(1e-20);
+        let pap = (p.clone() * ap.clone())
+            .sum()
+            .into_scalar::<f32>()
+            .max(1e-20);
         let alpha = rs / pap;
         x = x + p.clone() * alpha;
         r = r - ap * alpha;

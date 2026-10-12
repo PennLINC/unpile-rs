@@ -1,7 +1,7 @@
 //! Differentiable building blocks on PE-last tensors [n0, n1, N] (N = phase-encode axis).
-use burn::tensor::{Bool, Device, Int, Tensor, TensorData};
 use burn::tensor::module::conv3d;
 use burn::tensor::ops::{ConvOptions, IndexingUpdateOp};
+use burn::tensor::{Bool, Device, Int, Tensor, TensorData};
 
 const SQRT2: f32 = std::f32::consts::SQRT_2;
 const SQRT2PI: f32 = 2.506_628_3;
@@ -29,7 +29,8 @@ fn last(t: &Tensor<3>) -> usize {
 /// Central difference along the last axis, one-sided at the ends.
 pub fn ddx_last(d: Tensor<3>) -> Tensor<3> {
     let [n0, n1, n] = d.dims();
-    let mid = (d.clone().slice([0..n0, 0..n1, 2..n]) - d.clone().slice([0..n0, 0..n1, 0..n - 2])) * 0.5;
+    let mid =
+        (d.clone().slice([0..n0, 0..n1, 2..n]) - d.clone().slice([0..n0, 0..n1, 0..n - 2])) * 0.5;
     let first = d.clone().slice([0..n0, 0..n1, 1..2]) - d.clone().slice([0..n0, 0..n1, 0..1]);
     let lastd = d.clone().slice([0..n0, 0..n1, n - 1..n]) - d.slice([0..n0, 0..n1, n - 2..n - 1]);
     Tensor::cat(vec![first, mid, lastd], 2)
@@ -64,12 +65,16 @@ fn splat_impl(img: Tensor<3>, d: Tensor<3>, sigma: f32, nmax: usize) -> Tensor<3
     let de = Tensor::cat(
         vec![
             d.clone().slice([0..n0, 0..n1, 0..1]),
-            (d.clone().slice([0..n0, 0..n1, 1..n]) + d.clone().slice([0..n0, 0..n1, 0..n - 1])) * 0.5,
+            (d.clone().slice([0..n0, 0..n1, 1..n]) + d.clone().slice([0..n0, 0..n1, 0..n - 1]))
+                * 0.5,
             d.clone().slice([0..n0, 0..n1, n - 1..n]),
         ],
         2,
     ); // [n0, n1, n+1]: displaced half-voxel edges
-    let edges = Tensor::<1, Int>::arange(0..(n as i64 + 1), &device).float().sub_scalar(0.5).reshape([1, 1, n + 1]);
+    let edges = Tensor::<1, Int>::arange(0..(n as i64 + 1), &device)
+        .float()
+        .sub_scalar(0.5)
+        .reshape([1, 1, n + 1]);
     let e = edges.expand([n0, n1, n + 1]) + de;
     let e_lo = e.clone().slice([0..n0, 0..n1, 0..n]);
     let e_hi = e.slice([0..n0, 0..n1, 1..n + 1]);
@@ -81,33 +86,54 @@ fn splat_impl(img: Tensor<3>, d: Tensor<3>, sigma: f32, nmax: usize) -> Tensor<3
     let flat = |t: Tensor<3>| t.reshape([bsz, n]);
     let (img_f, a_f, b_f, len_f, j0_f) = (flat(img), flat(a), flat(b), flat(len), flat(j0));
     // voxels a stretched cell can reach: its length plus the Gaussian membership tails
-    let reach = len_f.clone().max().into_scalar::<f32>().ceil() as usize + 2 + (4.0 * sigma).ceil() as usize;
+    let reach = len_f.clone().max().into_scalar::<f32>().ceil() as usize
+        + 2
+        + (4.0 * sigma).ceil() as usize;
     let nm = nmax.min(reach).max(1);
     // every offset m at once: [nm, bsz, n] tensors, one scatter, then a sum over m. The cell edges
     // a and b are compared with the nm+1 voxel boundaries j0 + m - 1/2 once each; consecutive
     // boundaries are differenced, so two ramp evaluations serve all nm offsets.
     let lift = |t: Tensor<2>| t.unsqueeze_dim::<3>(0).expand([nm, bsz, n]);
     let lift1 = |t: Tensor<2>| t.unsqueeze_dim::<3>(0).expand([nm + 1, bsz, n]);
-    let mvals = Tensor::<1, Int>::arange(0..nm as i64, &device).float().reshape([nm, 1, 1]).expand([nm, bsz, n]);
+    let mvals = Tensor::<1, Int>::arange(0..nm as i64, &device)
+        .float()
+        .reshape([nm, 1, 1])
+        .expand([nm, bsz, n]);
     let j = lift(j0_f.clone()) + mvals;
     let ov = crate::profile::scope("splat.psi", || {
-        let bounds = lift1(j0_f) + Tensor::<1, Int>::arange(0..nm as i64 + 1, &device).float().sub_scalar(0.5).reshape([nm + 1, 1, 1]).expand([nm + 1, bsz, n]);
+        let bounds = lift1(j0_f)
+            + Tensor::<1, Int>::arange(0..nm as i64 + 1, &device)
+                .float()
+                .sub_scalar(0.5)
+                .reshape([nm + 1, 1, 1])
+                .expand([nm + 1, bsz, n]);
         let pb = ramp(lift1(b_f) - bounds.clone(), sigma);
         let pa = ramp(lift1(a_f) - bounds, sigma);
-        let diff = |p: Tensor<3>| p.clone().slice([0..nm, 0..bsz, 0..n]) - p.slice([1..nm + 1, 0..bsz, 0..n]);
+        let diff = |p: Tensor<3>| {
+            p.clone().slice([0..nm, 0..bsz, 0..n]) - p.slice([1..nm + 1, 0..bsz, 0..n])
+        };
         diff(pb) - diff(pa)
     });
     let (idx, vals) = crate::profile::scope("splat.weights", || {
         let w = ov / lift(len_f);
         let jj: Tensor<3, Int> = j.int();
-        let valid: Tensor<3, Bool> = jj.clone().greater_equal_elem(0).bool_and(jj.clone().lower_elem(n as i64));
-        let rows = (Tensor::<1, Int>::arange(0..bsz as i64, &device) * (n as i64)).reshape([1, bsz, 1]).expand([nm, bsz, n]);
+        let valid: Tensor<3, Bool> = jj
+            .clone()
+            .greater_equal_elem(0)
+            .bool_and(jj.clone().lower_elem(n as i64));
+        let rows = (Tensor::<1, Int>::arange(0..bsz as i64, &device) * (n as i64))
+            .reshape([1, bsz, 1])
+            .expand([nm, bsz, n]);
         let idx = (jj.clamp(0, n as i64 - 1) + rows).reshape([nm, bsz * n]);
-        let vals = (lift(img_f) * w).mask_fill(valid.bool_not(), 0.0).reshape([nm, bsz * n]);
+        let vals = (lift(img_f) * w)
+            .mask_fill(valid.bool_not(), 0.0)
+            .reshape([nm, bsz * n]);
         (idx, vals)
     });
     let out = crate::profile::scope("splat.scatter", || {
-        Tensor::<2>::zeros([nm, bsz * n], &device).scatter(1, idx, vals, IndexingUpdateOp::Add).sum_dim(0)
+        Tensor::<2>::zeros([nm, bsz * n], &device)
+            .scatter(1, idx, vals, IndexingUpdateOp::Add)
+            .sum_dim(0)
     });
     out.reshape([n0, n1, n])
 }
@@ -162,7 +188,10 @@ pub fn pullback(img: Tensor<3>, d: Tensor<3>) -> Tensor<3> {
 fn pullback_impl(img: Tensor<3>, d: Tensor<3>) -> Tensor<3> {
     let [n0, n1, n] = img.dims();
     let device = img.device();
-    let y = Tensor::<1, Int>::arange(0..n as i64, &device).float().reshape([1, 1, n]).expand([n0, n1, n]);
+    let y = Tensor::<1, Int>::arange(0..n as i64, &device)
+        .float()
+        .reshape([1, 1, n])
+        .expand([n0, n1, n]);
     let jac = (ddx_last(d.clone()) + 1.0).clamp_min(0.05);
     interp_last(img, y + d) * jac
 }
@@ -171,14 +200,22 @@ fn pullback_impl(img: Tensor<3>, d: Tensor<3>) -> Tensor<3> {
 pub fn pull_lagrangian(img: Tensor<3>, d: Tensor<3>) -> Tensor<3> {
     let [n0, n1, n] = img.dims();
     let device = img.device();
-    let y = Tensor::<1, Int>::arange(0..n as i64, &device).float().reshape([1, 1, n]).expand([n0, n1, n]);
+    let y = Tensor::<1, Int>::arange(0..n as i64, &device)
+        .float()
+        .reshape([1, 1, n])
+        .expand([n0, n1, n]);
     interp_last(img, y + d)
 }
 
 fn conv_valid(x: Tensor<3>, kernel: Tensor<5>) -> Tensor<3> {
     let [n0, n1, n2] = x.dims();
     let x5 = x.reshape([1, 1, n0, n1, n2]);
-    let y = conv3d(x5, kernel, None, ConvOptions::new([1, 1, 1], [0, 0, 0], [1, 1, 1], 1));
+    let y = conv3d(
+        x5,
+        kernel,
+        None,
+        ConvOptions::new([1, 1, 1], [0, 0, 0], [1, 1, 1], 1),
+    );
     let [_, _, m0, m1, m2] = y.dims();
     y.reshape([m0, m1, m2])
 }
@@ -222,10 +259,22 @@ fn pad_axis(y: Tensor<3>, ax: usize, k: usize) -> Tensor<3> {
 
 /// 1 - local normalized cross-correlation, averaged over the mask (windows without signal in the
 /// observation carry no information).
-pub fn lncc_loss(pred: Tensor<3>, obs: Tensor<3>, mask: Tensor<3>, w: usize, eps: f32) -> Tensor<1> {
+pub fn lncc_loss(
+    pred: Tensor<3>,
+    obs: Tensor<3>,
+    mask: Tensor<3>,
+    w: usize,
+    eps: f32,
+) -> Tensor<1> {
     crate::profile::scope("lncc_loss", || lncc_loss_impl(pred, obs, mask, w, eps))
 }
-fn lncc_loss_impl(pred: Tensor<3>, obs: Tensor<3>, mask: Tensor<3>, w: usize, eps: f32) -> Tensor<1> {
+fn lncc_loss_impl(
+    pred: Tensor<3>,
+    obs: Tensor<3>,
+    mask: Tensor<3>,
+    w: usize,
+    eps: f32,
+) -> Tensor<1> {
     let mp = box_mean(pred.clone(), w);
     let mo = box_mean(obs.clone(), w);
     let vp = box_mean(pred.clone() * pred.clone(), w) - mp.clone() * mp.clone();
@@ -246,7 +295,9 @@ fn gaussian_smooth_impl(x: Tensor<3>, sigma: f32) -> Tensor<3> {
     }
     let r = (3.0 * sigma).ceil() as i64;
     let device = x.device();
-    let kv: Vec<f32> = (-r..=r).map(|i| (-0.5 * (i as f32 / sigma).powi(2)).exp()).collect();
+    let kv: Vec<f32> = (-r..=r)
+        .map(|i| (-0.5 * (i as f32 / sigma).powi(2)).exp())
+        .collect();
     let s: f32 = kv.iter().sum();
     let kv: Vec<f32> = kv.into_iter().map(|v| v / s).collect();
     let klen = kv.len();
@@ -290,12 +341,15 @@ fn bending_energy_impl(f: Tensor<3>, spacing_mm: [f32; 3]) -> Tensor<1> {
         })
     };
     for a in 0..3 {
-        let f2 = (f.clone().roll(&[-1i64], &[a]) - f.clone() * 2.0 + f.clone().roll(&[1i64], &[a])) / spacing_mm[a].powi(2);
+        let f2 = (f.clone().roll(&[-1i64], &[a]) - f.clone() * 2.0 + f.clone().roll(&[1i64], &[a]))
+            / spacing_mm[a].powi(2);
         add(f2.clone() * f2);
     }
     for (a, b) in [(0usize, 1usize), (0, 2), (1, 2)] {
-        let ga = (f.clone().roll(&[-1i64], &[a]) - f.clone().roll(&[1i64], &[a])) / (2.0 * spacing_mm[a]);
-        let gab = (ga.clone().roll(&[-1i64], &[b]) - ga.roll(&[1i64], &[b])) / (2.0 * spacing_mm[b]);
+        let ga = (f.clone().roll(&[-1i64], &[a]) - f.clone().roll(&[1i64], &[a]))
+            / (2.0 * spacing_mm[a]);
+        let gab =
+            (ga.clone().roll(&[-1i64], &[b]) - ga.roll(&[1i64], &[b])) / (2.0 * spacing_mm[b]);
         add(gab.clone() * gab * 2.0);
     }
     e.unwrap().mean()

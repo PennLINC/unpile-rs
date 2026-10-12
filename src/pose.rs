@@ -11,7 +11,11 @@ pub const POSE_TRANS: f32 = 2.0;
 /// Per-axis voxel index grids as float tensors [n0, n1, n2].
 pub fn index_grids(shape: [usize; 3], device: &Device) -> [Tensor<3>; 3] {
     let [n0, n1, n2] = shape;
-    let mut g = [vec![0f32; n0 * n1 * n2], vec![0f32; n0 * n1 * n2], vec![0f32; n0 * n1 * n2]];
+    let mut g = [
+        vec![0f32; n0 * n1 * n2],
+        vec![0f32; n0 * n1 * n2],
+        vec![0f32; n0 * n1 * n2],
+    ];
     let mut p = 0;
     for i in 0..n0 {
         for j in 0..n1 {
@@ -30,7 +34,11 @@ pub fn index_grids(shape: [usize; 3], device: &Device) -> [Tensor<3>; 3] {
 pub fn pose_matrix(pose: &Tensor<1>) -> ([Tensor<1>; 9], [Tensor<1>; 3]) {
     let r = pose.clone().slice([0..3]) * POSE_ROT;
     let t = pose.clone().slice([3..6]) * POSE_TRANS;
-    let (rx, ry, rz) = (r.clone().slice([0..1]), r.clone().slice([1..2]), r.slice([2..3]));
+    let (rx, ry, rz) = (
+        r.clone().slice([0..1]),
+        r.clone().slice([1..2]),
+        r.slice([2..3]),
+    );
     let (cx, sx) = (rx.clone().cos(), rx.sin());
     let (cy, sy) = (ry.clone().cos(), ry.sin());
     let (cz, sz) = (rz.clone().cos(), rz.sin());
@@ -45,7 +53,14 @@ pub fn pose_matrix(pose: &Tensor<1>) -> ([Tensor<1>; 9], [Tensor<1>; 3]) {
     let r20 = sy.neg();
     let r21 = cy.clone() * sx;
     let r22 = cy * cx;
-    ([r00, r01, r02, r10, r11, r12, r20, r21, r22], [t.clone().slice([0..1]), t.clone().slice([1..2]), t.slice([2..3])])
+    (
+        [r00, r01, r02, r10, r11, r12, r20, r21, r22],
+        [
+            t.clone().slice([0..1]),
+            t.clone().slice([1..2]),
+            t.slice([2..3]),
+        ],
+    )
 }
 
 fn bc(s: &Tensor<1>, shape: [usize; 3]) -> Tensor<3> {
@@ -53,14 +68,20 @@ fn bc(s: &Tensor<1>, shape: [usize; 3]) -> Tensor<3> {
 }
 
 /// The reference moved rigidly and resampled onto its own grid.
-pub fn posed(reference: Tensor<3>, pose: &Tensor<1>, spacing_mm: [f32; 3], grids: &[Tensor<3>; 3]) -> Tensor<3> {
+pub fn posed(
+    reference: Tensor<3>,
+    pose: &Tensor<1>,
+    spacing_mm: [f32; 3],
+    grids: &[Tensor<3>; 3],
+) -> Tensor<3> {
     let shape = reference.dims();
     let [n0, n1, n2] = shape;
     let device = reference.device();
     let (r, t) = pose_matrix(pose);
     let centre = [0, 1, 2].map(|a| 0.5 * (shape[a] as f32 - 1.0) * spacing_mm[a]);
     // x_mm - centre - t, per axis
-    let q: [Tensor<3>; 3] = [0, 1, 2].map(|a| grids[a].clone() * spacing_mm[a] - centre[a] - bc(&t[a], shape));
+    let q: [Tensor<3>; 3] =
+        [0, 1, 2].map(|a| grids[a].clone() * spacing_mm[a] - centre[a] - bc(&t[a], shape));
     // src_mm[k] = sum_j q[j] R[j][k] + centre[k]  (row-vector convention of the prototype)
     let src_idx: [Tensor<3>; 3] = [0, 1, 2].map(|k| {
         let mut s = q[0].clone() * bc(&r[0 * 3 + k], shape);
@@ -80,17 +101,39 @@ pub fn posed(reference: Tensor<3>, pose: &Tensor<1>, spacing_mm: [f32; 3], grids
         let mut valid: Option<Tensor<3, Bool>> = None;
         for a in 0..3 {
             let ia = i0[a].clone() + dx[a] as f32;
-            let wa = if dx[a] == 1 { fr[a].clone() } else { fr[a].clone().neg() + 1.0 };
-            let va = ia.clone().greater_equal_elem(0.0).bool_and(ia.clone().lower_elem(shape[a] as f32));
-            w = Some(match w { Some(x) => x * wa, None => wa });
-            valid = Some(match valid { Some(x) => x.bool_and(va), None => va });
+            let wa = if dx[a] == 1 {
+                fr[a].clone()
+            } else {
+                fr[a].clone().neg() + 1.0
+            };
+            let va = ia
+                .clone()
+                .greater_equal_elem(0.0)
+                .bool_and(ia.clone().lower_elem(shape[a] as f32));
+            w = Some(match w {
+                Some(x) => x * wa,
+                None => wa,
+            });
+            valid = Some(match valid {
+                Some(x) => x.bool_and(va),
+                None => va,
+            });
             let ic = ia.clamp(0.0, shape[a] as f32 - 1.0);
-            idx = Some(match idx { Some(x) => x * shape[a] as f32 + ic, None => ic });
+            idx = Some(match idx {
+                Some(x) => x * shape[a] as f32 + ic,
+                None => ic,
+            });
         }
         let lin: Tensor<3, Int> = idx.unwrap().int();
-        let vals = flat.clone().gather(0, lin.reshape([n0 * n1 * n2])).reshape(shape);
+        let vals = flat
+            .clone()
+            .gather(0, lin.reshape([n0 * n1 * n2]))
+            .reshape(shape);
         let term = (vals * w.unwrap()).mask_fill(valid.unwrap().bool_not(), 0.0);
-        out = Some(match out { Some(x) => x + term, None => term });
+        out = Some(match out {
+            Some(x) => x + term,
+            None => term,
+        });
     }
     let _ = device;
     out.unwrap()
@@ -105,5 +148,8 @@ pub fn pose_report(pose: &Tensor<1>) -> PoseReport {
     let (r, t) = pose_matrix(pose);
     let tr = (r[0].clone() + r[4].clone() + r[8].clone()).into_scalar::<f32>();
     let ang = (((tr - 1.0) / 2.0).clamp(-1.0, 1.0)).acos().to_degrees();
-    PoseReport { rotation_deg: ang, translation_mm: [0, 1, 2].map(|a| t[a].clone().into_scalar::<f32>()) }
+    PoseReport {
+        rotation_deg: ang,
+        translation_mm: [0, 1, 2].map(|a| t[a].clone().into_scalar::<f32>()),
+    }
 }

@@ -39,8 +39,13 @@ pub fn matmul(a: &Mat4, b: &Mat4) -> Mat4 {
 
 /// Inverse of an affine matrix (last row 0 0 0 1).
 pub fn inverse(a: &Mat4) -> Result<Mat4> {
-    let l = [[a[0][0], a[0][1], a[0][2]], [a[1][0], a[1][1], a[1][2]], [a[2][0], a[2][1], a[2][2]]];
-    let det = l[0][0] * (l[1][1] * l[2][2] - l[1][2] * l[2][1]) - l[0][1] * (l[1][0] * l[2][2] - l[1][2] * l[2][0])
+    let l = [
+        [a[0][0], a[0][1], a[0][2]],
+        [a[1][0], a[1][1], a[1][2]],
+        [a[2][0], a[2][1], a[2][2]],
+    ];
+    let det = l[0][0] * (l[1][1] * l[2][2] - l[1][2] * l[2][1])
+        - l[0][1] * (l[1][0] * l[2][2] - l[1][2] * l[2][0])
         + l[0][2] * (l[1][0] * l[2][1] - l[1][1] * l[2][0]);
     if det.abs() < 1e-12 {
         return Err(anyhow!("singular affine"));
@@ -109,13 +114,19 @@ pub fn write_itk_warp(
     h.intent_name = [0; 16];
     h.cal_min = 0.0;
     h.cal_max = 0.0;
-    nifti::writer::WriterOptions::new(path.as_ref()).reference_header(&h).write_nifti(&w)?;
+    nifti::writer::WriterOptions::new(path.as_ref())
+        .reference_header(&h)
+        .write_nifti(&w)?;
     Ok(())
 }
 
 /// Rotation matrix of a pose (R = Rz Ry Rx, the prototype's convention), row-major.
 fn rotation(pose: &[f32; 6]) -> [[f64; 3]; 3] {
-    let (rx, ry, rz) = ((pose[0] * POSE_ROT) as f64, (pose[1] * POSE_ROT) as f64, (pose[2] * POSE_ROT) as f64);
+    let (rx, ry, rz) = (
+        (pose[0] * POSE_ROT) as f64,
+        (pose[1] * POSE_ROT) as f64,
+        (pose[2] * POSE_ROT) as f64,
+    );
     let (cx, sx, cy, sy, cz, sz) = (rx.cos(), rx.sin(), ry.cos(), ry.sin(), rz.cos(), rz.sin());
     [
         [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
@@ -143,7 +154,10 @@ pub fn pose_grid_matrix(pose: &[f32; 6], shape_pl: [usize; 3], spacing_pl: [f32;
 
 /// PE-last grid mm -> RAS world: A * P * diag(1/spacing), P the PE-last -> file-order permutation.
 pub fn grid_to_world(header: &NiftiHeader, pe_axis: usize, spacing_pl: [f32; 3]) -> Mat4 {
-    let order: Vec<usize> = (0..3).filter(|&x| x != pe_axis).chain(std::iter::once(pe_axis)).collect();
+    let order: Vec<usize> = (0..3)
+        .filter(|&x| x != pe_axis)
+        .chain(std::iter::once(pe_axis))
+        .collect();
     let mut ps = [[0.0; 4]; 4]; // P * S^-1
     for k in 0..3 {
         ps[order[k]][k] = 1.0 / spacing_pl[k] as f64;
@@ -153,7 +167,13 @@ pub fn grid_to_world(header: &NiftiHeader, pe_axis: usize, spacing_pl: [f32; 3])
 }
 
 /// The estimated reference pose as a RAS point map, fixed (EPI grid) -> moving (reference).
-pub fn pose_world_affine(pose: &[f32; 6], shape_pl: [usize; 3], spacing_pl: [f32; 3], pe_axis: usize, header: &NiftiHeader) -> Result<Mat4> {
+pub fn pose_world_affine(
+    pose: &[f32; 6],
+    shape_pl: [usize; 3],
+    spacing_pl: [f32; 3],
+    pe_axis: usize,
+    header: &NiftiHeader,
+) -> Result<Mat4> {
     let g = grid_to_world(header, pe_axis, spacing_pl);
     let m = pose_grid_matrix(pose, shape_pl, spacing_pl);
     Ok(matmul(&matmul(&g, &m), &inverse(&g)?))
@@ -196,7 +216,10 @@ mod itk {
     pub fn read_itk_affine(path: impl AsRef<Path>) -> Result<Mat4> {
         let chain = read_itk(path.as_ref()).map_err(|e| anyhow!("{e}"))?;
         if chain.has_warp() {
-            return Err(anyhow!("{:?} contains a displacement field; expected an affine", path.as_ref()));
+            return Err(anyhow!(
+                "{:?} contains a displacement field; expected an affine",
+                path.as_ref()
+            ));
         }
         let o = chain.map_point([0.0, 0.0, 0.0]);
         let mut m = [[0.0; 4]; 4];
@@ -224,7 +247,12 @@ mod tests {
 
     #[test]
     fn inverse_roundtrip() {
-        let a = [[2.0, 0.1, 0.0, 5.0], [0.0, 1.5, 0.2, -3.0], [0.3, 0.0, 1.0, 7.0], [0.0, 0.0, 0.0, 1.0]];
+        let a = [
+            [2.0, 0.1, 0.0, 5.0],
+            [0.0, 1.5, 0.2, -3.0],
+            [0.3, 0.0, 1.0, 7.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
         let i = matmul(&a, &inverse(&a).unwrap());
         for r in 0..4 {
             for c in 0..4 {

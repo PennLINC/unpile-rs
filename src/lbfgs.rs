@@ -12,7 +12,14 @@ pub struct LbfgsOptions {
 
 impl Default for LbfgsOptions {
     fn default() -> Self {
-        Self { max_iter: 60, max_eval: 240, history: 20, tolerance_grad: 1e-10, tolerance_change: 1e-14, lr: 1.0 }
+        Self {
+            max_iter: 60,
+            max_eval: 240,
+            history: 20,
+            tolerance_grad: 1e-10,
+            tolerance_change: 1e-14,
+            lr: 1.0,
+        }
     }
 }
 
@@ -20,7 +27,15 @@ fn dot(a: &[f32], b: &[f32]) -> f64 {
     a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum()
 }
 
-fn cubic_interpolate(x1: f64, f1: f64, g1: f64, x2: f64, f2: f64, g2: f64, bounds: Option<(f64, f64)>) -> f64 {
+fn cubic_interpolate(
+    x1: f64,
+    f1: f64,
+    g1: f64,
+    x2: f64,
+    f2: f64,
+    g2: f64,
+    bounds: Option<(f64, f64)>,
+) -> f64 {
     let (xmin, xmax) = bounds.unwrap_or(if x1 <= x2 { (x1, x2) } else { (x2, x1) });
     let d1 = g1 + g2 - 3.0 * (f1 - f2) / (x1 - x2);
     let d2_square = d1 * d1 - g1 * g2;
@@ -39,10 +54,24 @@ fn cubic_interpolate(x1: f64, f1: f64, g1: f64, x2: f64, f2: f64, g2: f64, bound
 
 /// Returns (f_new, g_new, t, n_evals). `obj(x)` -> (f, grad).
 fn strong_wolfe<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(
-    obj: &mut F, x: &[f32], t0: f64, d: &[f32], f: f64, g: &[f32], gtd: f64, c1: f64, c2: f64, tol_change: f64, max_ls: usize,
+    obj: &mut F,
+    x: &[f32],
+    t0: f64,
+    d: &[f32],
+    f: f64,
+    g: &[f32],
+    gtd: f64,
+    c1: f64,
+    c2: f64,
+    tol_change: f64,
+    max_ls: usize,
 ) -> (f64, Vec<f32>, f64, usize) {
     let eval_at = |obj: &mut F, t: f64| -> (f64, Vec<f32>) {
-        let xn: Vec<f32> = x.iter().zip(d).map(|(xi, di)| xi + (t as f32) * di).collect();
+        let xn: Vec<f32> = x
+            .iter()
+            .zip(d)
+            .map(|(xi, di)| xi + (t as f32) * di)
+            .collect();
         let (fv, gv) = obj(&xn);
         (fv as f64, gv)
     };
@@ -83,7 +112,15 @@ fn strong_wolfe<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(
         let min_step = t + 0.01 * (t - t_prev);
         let max_step = t * 10.0;
         let tmp = t;
-        t = cubic_interpolate(t_prev, f_prev, gtd_prev, t, f_new, gtd_new, Some((min_step, max_step)));
+        t = cubic_interpolate(
+            t_prev,
+            f_prev,
+            gtd_prev,
+            t,
+            f_new,
+            gtd_new,
+            Some((min_step, max_step)),
+        );
         t_prev = tmp;
         f_prev = f_new;
         g_prev = g_new.clone();
@@ -103,7 +140,11 @@ fn strong_wolfe<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(
     }
     // zoom
     let mut insuf_progress = false;
-    let (mut low_pos, mut high_pos) = if bracket_f.len() == 2 && bracket_f[0] <= bracket_f[1] { (0usize, 1usize) } else { (1usize, 0usize) };
+    let (mut low_pos, mut high_pos) = if bracket_f.len() == 2 && bracket_f[0] <= bracket_f[1] {
+        (0usize, 1usize)
+    } else {
+        (1usize, 0usize)
+    };
     while !done && ls_iter < max_ls {
         if bracket.len() < 2 {
             break;
@@ -111,13 +152,25 @@ fn strong_wolfe<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(
         if (bracket[1] - bracket[0]).abs() * d_norm < tol_change {
             break;
         }
-        t = cubic_interpolate(bracket[0], bracket_f[0], bracket_gtd[0], bracket[1], bracket_f[1], bracket_gtd[1], None);
+        t = cubic_interpolate(
+            bracket[0],
+            bracket_f[0],
+            bracket_gtd[0],
+            bracket[1],
+            bracket_f[1],
+            bracket_gtd[1],
+            None,
+        );
         let bmax = bracket[0].max(bracket[1]);
         let bmin = bracket[0].min(bracket[1]);
         let eps = 0.1 * (bmax - bmin);
         if (bmax - t).min(t - bmin) < eps {
             if insuf_progress || t >= bmax || t <= bmin {
-                t = if (t - bmax).abs() < (t - bmin).abs() { bmax - eps } else { bmin + eps };
+                t = if (t - bmax).abs() < (t - bmin).abs() {
+                    bmax - eps
+                } else {
+                    bmin + eps
+                };
                 insuf_progress = false;
             } else {
                 insuf_progress = true;
@@ -136,7 +189,11 @@ fn strong_wolfe<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(
             bracket_f[high_pos] = f_new;
             bracket_g[high_pos] = g_new.clone();
             bracket_gtd[high_pos] = gtd_new;
-            let (l, h) = if bracket_f[0] <= bracket_f[1] { (0, 1) } else { (1, 0) };
+            let (l, h) = if bracket_f[0] <= bracket_f[1] {
+                (0, 1)
+            } else {
+                (1, 0)
+            };
             low_pos = l;
             high_pos = h;
         } else {
@@ -159,7 +216,11 @@ fn strong_wolfe<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(
 }
 
 /// Minimise obj in place on x; returns (final f, n_evals).
-pub fn lbfgs<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(mut obj: F, x: &mut [f32], opt: &LbfgsOptions) -> (f32, usize) {
+pub fn lbfgs<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(
+    mut obj: F,
+    x: &mut [f32],
+    opt: &LbfgsOptions,
+) -> (f32, usize) {
     let (f0, mut g) = obj(x);
     let mut f = f0 as f64;
     let mut n_eval = 1usize;
@@ -198,14 +259,24 @@ pub fn lbfgs<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(mut obj: F, x: &mut [f32], opt
             let mut q: Vec<f64> = g.iter().map(|v| -(*v as f64)).collect();
             let mut al = vec![0.0f64; m];
             for i in (0..m).rev() {
-                al[i] = s_hist[i].iter().zip(&q).map(|(a, b)| *a as f64 * b).sum::<f64>() * ro[i];
+                al[i] = s_hist[i]
+                    .iter()
+                    .zip(&q)
+                    .map(|(a, b)| *a as f64 * b)
+                    .sum::<f64>()
+                    * ro[i];
                 for (qj, yj) in q.iter_mut().zip(&y_hist[i]) {
                     *qj -= al[i] * *yj as f64;
                 }
             }
             let mut r: Vec<f64> = q.iter().map(|v| v * h_diag).collect();
             for i in 0..m {
-                let be = y_hist[i].iter().zip(&r).map(|(a, b)| *a as f64 * b).sum::<f64>() * ro[i];
+                let be = y_hist[i]
+                    .iter()
+                    .zip(&r)
+                    .map(|(a, b)| *a as f64 * b)
+                    .sum::<f64>()
+                    * ro[i];
                 for (rj, sj) in r.iter_mut().zip(&s_hist[i]) {
                     *rj += (al[i] - be) * *sj as f64;
                 }
@@ -217,8 +288,24 @@ pub fn lbfgs<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(mut obj: F, x: &mut [f32], opt
         if gtd > -opt.tolerance_change as f64 {
             break;
         }
-        t = if first { (1.0f64).min(1.0 / g.iter().map(|v| v.abs() as f64).sum::<f64>()) * opt.lr as f64 } else { opt.lr as f64 };
-        let (f_new, g_new, t_used, ls_evals) = strong_wolfe(&mut obj, x, t, &d, f, &g, gtd, 1e-4, 0.9, opt.tolerance_change as f64, 25);
+        t = if first {
+            (1.0f64).min(1.0 / g.iter().map(|v| v.abs() as f64).sum::<f64>()) * opt.lr as f64
+        } else {
+            opt.lr as f64
+        };
+        let (f_new, g_new, t_used, ls_evals) = strong_wolfe(
+            &mut obj,
+            x,
+            t,
+            &d,
+            f,
+            &g,
+            gtd,
+            1e-4,
+            0.9,
+            opt.tolerance_change as f64,
+            25,
+        );
         n_eval += ls_evals;
         // apply step and store scaled direction for the next curvature pair
         for (xi, di) in x.iter_mut().zip(&d) {
@@ -231,7 +318,8 @@ pub fn lbfgs<F: FnMut(&[f32]) -> (f32, Vec<f32>)>(mut obj: F, x: &mut [f32], opt
         f = f_new;
         g = g_new;
         first = false;
-        if n_iter == opt.max_iter || n_eval >= opt.max_eval || gmax(&g) <= opt.tolerance_grad as f64 {
+        if n_iter == opt.max_iter || n_eval >= opt.max_eval || gmax(&g) <= opt.tolerance_grad as f64
+        {
             break;
         }
         if d.iter().fold(0.0f64, |m, v| m.max(v.abs() as f64)) <= opt.tolerance_change as f64 {

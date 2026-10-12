@@ -33,8 +33,17 @@ pub fn report() {
     let m = ACC.get_or_init(Default::default).lock().unwrap();
     let mut rows: Vec<_> = m.iter().collect();
     rows.sort_by_key(|r| std::cmp::Reverse(r.1 .1));
-    println!("{:<22} {:>8} {:>10} {:>9}", "scope (inclusive)", "calls", "total s", "mean ms");
+    println!(
+        "{:<22} {:>8} {:>10} {:>9}",
+        "scope (inclusive)", "calls", "total s", "mean ms"
+    );
     for (name, (n, d)) in rows {
-        println!("{:<22} {:>8} {:>10.2} {:>9.2}", name, n, d.as_secs_f64(), d.as_secs_f64() * 1000.0 / *n as f64);
+        println!(
+            "{:<22} {:>8} {:>10.2} {:>9.2}",
+            name,
+            n,
+            d.as_secs_f64(),
+            d.as_secs_f64() * 1000.0 / *n as f64
+        );
     }
 }

@@ -15,7 +15,12 @@ pub struct FieldScore {
     pub n: usize,
 }
 
-pub fn score_field(est_vox: &Array3<f32>, true_vox: &Array3<f32>, mask: &Array3<bool>, vox_mm: f32) -> FieldScore {
+pub fn score_field(
+    est_vox: &Array3<f32>,
+    true_vox: &Array3<f32>,
+    mask: &Array3<bool>,
+    vox_mm: f32,
+) -> FieldScore {
     let mut e = Vec::new();
     let mut t = Vec::new();
     for ((a, b), &m) in est_vox.iter().zip(true_vox.iter()).zip(mask.iter()) {
@@ -31,7 +36,9 @@ pub fn score_field(est_vox: &Array3<f32>, true_vox: &Array3<f32>, mask: &Array3<
     let ed: Vec<f64> = e.iter().map(|v| v - me).collect();
     let td: Vec<f64> = t.iter().map(|v| v - mt).collect();
     let corr = dot(&ed, &td) / (dot(&ed, &ed) * dot(&td, &td)).sqrt();
-    let rms = |x: &[f64], y: &[f64]| (x.iter().zip(y).map(|(a, b)| (a - b).powi(2)).sum::<f64>() / n as f64).sqrt();
+    let rms = |x: &[f64], y: &[f64]| {
+        (x.iter().zip(y).map(|(a, b)| (a - b).powi(2)).sum::<f64>() / n as f64).sqrt()
+    };
     FieldScore {
         corr,
         slope: dot(&e, &t) / dot(&t, &t),

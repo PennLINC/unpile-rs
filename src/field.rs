@@ -99,9 +99,20 @@ pub fn apply3(x: Tensor<3>, a0: &Tensor<2>, a1: &Tensor<2>, a2: &Tensor<2>) -> T
     let m0 = a0.dims()[0];
     let m1 = a1.dims()[0];
     let m2 = a2.dims()[0];
-    let t = x.reshape([s0 * s1, s2]).matmul(a2.clone().transpose()).reshape([s0, s1, m2]); // (s0,s1,m2)
-    let t = t.swap_dims(1, 2).reshape([s0 * m2, s1]).matmul(a1.clone().transpose()).reshape([s0, m2, m1]); // (s0,m2,m1)
-    let t = t.permute([1, 2, 0]).reshape([m2 * m1, s0]).matmul(a0.clone().transpose()).reshape([m2, m1, m0]); // (m2,m1,m0)
+    let t = x
+        .reshape([s0 * s1, s2])
+        .matmul(a2.clone().transpose())
+        .reshape([s0, s1, m2]); // (s0,s1,m2)
+    let t = t
+        .swap_dims(1, 2)
+        .reshape([s0 * m2, s1])
+        .matmul(a1.clone().transpose())
+        .reshape([s0, m2, m1]); // (s0,m2,m1)
+    let t = t
+        .permute([1, 2, 0])
+        .reshape([m2 * m1, s0])
+        .matmul(a0.clone().transpose())
+        .reshape([m2, m1, m0]); // (m2,m1,m0)
     t.permute([2, 1, 0])
 }
 
@@ -114,12 +125,29 @@ impl BsplineField {
             let (mat, kk) = bspline_matrix(shape[ax], spacing_vox[ax]);
             cshape[ax] = kk;
             let p = pinv(&mat, shape[ax], kk);
-            m.push(Tensor::<2>::from_data(TensorData::new(mat.iter().map(|&v| v as f32).collect::<Vec<f32>>(), [shape[ax], kk]), device));
-            pv.push(Tensor::<2>::from_data(TensorData::new(p.iter().map(|&v| v as f32).collect::<Vec<f32>>(), [kk, shape[ax]]), device));
+            m.push(Tensor::<2>::from_data(
+                TensorData::new(
+                    mat.iter().map(|&v| v as f32).collect::<Vec<f32>>(),
+                    [shape[ax], kk],
+                ),
+                device,
+            ));
+            pv.push(Tensor::<2>::from_data(
+                TensorData::new(
+                    p.iter().map(|&v| v as f32).collect::<Vec<f32>>(),
+                    [kk, shape[ax]],
+                ),
+                device,
+            ));
         }
         let m: [Tensor<2>; 3] = [m.remove(0), m.remove(0), m.remove(0)];
         let pinv: [Tensor<2>; 3] = [pv.remove(0), pv.remove(0), pv.remove(0)];
-        Self { shape, cshape, m, pinv }
+        Self {
+            shape,
+            cshape,
+            m,
+            pinv,
+        }
     }
 
     /// Field (Hz) on the image grid from coefficients (units of SCALE Hz).
