@@ -68,7 +68,15 @@ same class as SyN-based fieldmap-less correction, and it is at its best when it 
 SynB0 field and sharpens it, or when the EPI itself is T2-weighted.
 
 ```{figure} ../_static/fieldmapless_sbref.png
-:alt: SBRef before and after correction with the T2w, and the field next to a topup field.
+:alt: SBRef before and after correction with the T2w's edges overlaid, and the field next to a topup field.
 
-The ds002737 run from the table.
+The ds002737 run from the table, with the T2w's edges drawn on the EPI panels. The correction moves
+the cortex onto them where the field is moderate; in the frontal and temporal hot spots unpile's
+field has about half of topup's amplitude, so those regions are only partly restored.
+```
+
+```{figure} ../_static/fieldmapless_sbref_flicker.gif
+:alt: The same slice alternating between the acquired and the corrected SBRef.
+
+The same slice alternating between the acquired and the corrected image, one second each.
 ```

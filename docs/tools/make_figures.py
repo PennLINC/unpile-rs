@@ -93,31 +93,76 @@ def gre_refinement(fx, out):
     plt.close(fig)
 
 
+def edges(a2d, sigma=2.0):
+    """Canny edges of a display slice (the strong ones only), for overlaying the reference's anatomy on the EPI panels."""
+    from skimage.feature import canny
+    lo, hi = np.percentile(a2d, [2, 98])
+    x = np.clip((a2d - lo) / max(hi - lo, 1e-6), 0, 1)
+    return canny(x, sigma=sigma, low_threshold=0.15, high_threshold=0.35)
+
+
+def overlay_edges(ax, e2d, aspect, color=(1.0, 0.25, 0.1)):
+    rgba = np.zeros(e2d.shape + (4,))
+    rgba[e2d] = (*color, 0.9)
+    ax.imshow(rgba, origin="lower", aspect=aspect, interpolation="nearest")
+
+
+def best_slice(disp, mask):
+    """The axial slice with the largest mean displacement among those that show most of the brain."""
+    area = mask.sum(axis=(0, 1))
+    cands = [(np.abs(disp[:, :, k][mask[:, :, k]]).mean(), k) for k in range(mask.shape[2]) if area[k] > 0.88 * area.max()]
+    return max(cands)[1]
+
+
 def fieldmapless_sbref(real, real_out, out):
     sb, img = vol(f"{real}/sbref_ap.nii.gz")
     corr, _ = vol(f"{real_out}/corrected.nii.gz")
     t2, _ = vol(f"{real}/t2w.nii.gz")
     field, _ = vol(f"{real_out}/field_hz.nii.gz")
     topup, _ = vol(f"{real}/se_topup_field_hz.nii.gz")
+    disp, _ = vol(f"{real_out}/disp_pe_mm.nii.gz")
     mask = vol(f"{real}/brain_mask.nii.gz")[0] > 0
-    z = centre_slice(mask) - 12
+    z = best_slice(disp, mask)
     aspect = img.header.get_zooms()[1] / img.header.get_zooms()[0]
     m2 = axial(mask, z)
+    e = crop(edges(axial(t2, z)), m2, 8)
     field = field - field[mask].mean()  # the fit pins the in-brain mean (the pose carries the DC); compare structure
     topup = topup - topup[mask].mean()
-    fig, axes = plt.subplots(2, 3, figsize=(9.5, 6.6))
-    for ax, a, t in zip(axes[0], [sb, corr, t2], ["SBRef as acquired", "corrected by unpile\n(T2w reference, joint pose)", "T2w reference"]):
+    fig, axes = plt.subplots(2, 3, figsize=(9.5, 6.8))
+    for ax, a, t in zip(axes[0], [sb, corr, t2],
+                        ["SBRef as acquired\n(T2w edges in red)", "corrected by unpile\n(T2w reference, joint pose)", "T2w reference"]):
         panel(ax, crop(axial(a, z), m2, 8), t, aspect=aspect)
-    hz = 50
+        if a is not t2:
+            overlay_edges(ax, e, aspect)
+    hz = 70
     for ax, a, t in zip(axes[1], [field, topup, field - topup],
                         ["unpile field (Hz, mean removed)", "FSL topup field from the\nspin-echo pair (Hz, mean removed)", "difference (Hz)"]):
         im = panel(ax, crop(axial(masked(a, mask), z), m2, 8), t, hz=hz, aspect=aspect)
     cb = fig.colorbar(im, ax=axes[1, 2], fraction=0.046, pad=0.02)
     cb.set_label("Hz", fontsize=8)
-    fig.suptitle("Fieldmap-less correction of a 2.4 mm SBRef (OpenNeuro ds002737) fitted on a 1.8 mm grid", fontsize=10)
+    d = np.abs(disp[:, :, z][m2])
+    fig.suptitle(f"Fieldmap-less correction of a 2.4 mm SBRef (OpenNeuro ds002737), fitted on a 1.8 mm grid\n"
+                 f"this slice: median displacement {np.median(d):.1f} mm, maximum {d.max():.1f} mm", fontsize=9.5)
     fig.tight_layout()
     fig.savefig(f"{out}/fieldmapless_sbref.png", dpi=130)
     plt.close(fig)
+    # a two-frame flicker of the same slice: the shift is easier to see in motion than side by side
+    frames = []
+    for a, t in [(sb, "as acquired"), (corr, "corrected")]:
+        f2, ax = plt.subplots(figsize=(4.2, 4.6))
+        panel(ax, crop(axial(a, z), m2, 8), t, aspect=aspect)
+        overlay_edges(ax, e, aspect)
+        f2.tight_layout(pad=0.3)
+        f2.canvas.draw()
+        frames.append(np.asarray(f2.canvas.buffer_rgba())[..., :3].copy())
+        plt.close(f2)
+    try:
+        import imageio.v2 as imageio
+        imageio.mimsave(f"{out}/fieldmapless_sbref_flicker.gif", frames, duration=1.0, loop=0)
+    except ImportError:
+        from PIL import Image
+        ims = [Image.fromarray(f) for f in frames]
+        ims[0].save(f"{out}/fieldmapless_sbref_flicker.gif", save_all=True, append_images=ims[1:], duration=1000, loop=0)
 
 
 def resolution_sweep(out):

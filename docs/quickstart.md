@@ -60,12 +60,14 @@ On real data the T2w fit works best on a grid finer than the EPI; {doc}`user/fie
 rule and the numbers, and the figure below is a real 2.4 mm single-band reference from OpenNeuro.
 
 ```{figure} _static/fieldmapless_sbref.png
-:alt: A single-band reference before and after fieldmap-less correction next to its T2w, and the estimated field next to a topup field from a spin-echo pair.
+:alt: A single-band reference before and after fieldmap-less correction with the T2w's edges overlaid, the T2w, and the estimated field next to a topup field from a spin-echo pair.
 
 A 2.4 mm SBRef (OpenNeuro ds002737) corrected against the subject's T2w with a joint pose, fitted on
-a 1.8 mm grid. Bottom: unpile's field next to FSL topup's field from the spin-echo pair of the same
-session, both with their mean removed. They agree at 0.74 correlation; the temporal lobes are where
-they differ.
+a 1.8 mm grid, with the T2w's edges drawn on both EPI panels: the frontal and temporal cortex moves
+onto them. Bottom: unpile's field next to FSL topup's field from the spin-echo pair of the same
+session, both with their mean removed. The shapes agree (0.74 correlation) but unpile recovers
+about half the amplitude in the frontal and temporal hot spots, which is what the T2w path's slope
+of 0.5 in {doc}`user/fieldmapless` means.
 ```
 
 ## Apply the correction with ANTs
