@@ -74,8 +74,8 @@ enum Cmd {
         /// GRE fieldmap in Hz on the EPI grid, used as a prior and refined against the EPI
         #[arg(long)]
         fieldmap: Option<String>,
-        /// which fieldmap terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta)
-        #[arg(long, default_value = "pose,shim,delta")]
+        /// which fieldmap terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta; add it only with a same-contrast reference)
+        #[arg(long, default_value = "pose,shim")]
         fieldmap_refine: String,
         /// ridge weight keeping the residual close to the fieldmap
         #[arg(long, default_value_t = 1.0)]

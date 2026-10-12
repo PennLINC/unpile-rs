@@ -56,11 +56,22 @@ unpile fit --epi sbref_1p8mm.nii.gz --reference t2w_1p8mm.nii.gz --mask brain_1p
 | simulated 3 mm, vs truth | clean b=0 | 0.994 | 0.47 mm |
 | simulated 3 mm, vs truth | T2w, native grid | 0.54 | 3.9 mm |
 | simulated 3 mm, vs truth | T2w, 2 mm grid | 0.76 | 2.7 mm |
+| 1.7 mm diffusion b=0, 92 ms readout (HBCD protocol), vs the session's GRE fieldmap | T2w, native grid | 0.87 | 2.4 mm |
+| the same, vs topup from the AP/PA pair | T2w, native grid | 0.88 | 2.1 mm |
 | 2.4 mm SBRef (ds002737), vs topup from a spin-echo pair | T2w, 1.8 mm grid | 0.74 | 1.6 mm |
 | 2 mm spin-echo EPI (BOLD5000), vs topup from a spin-echo pair | T2w, native grid | 0.85 | 1.6 mm |
 
 On the simulated dataset the fitted position recovers a 7.1° / 5.1 mm misplacement of the T2w to
 1.3° / 2.0 mm, or 0.5° / 1.6 mm on the 2 mm grid.
+
+```{figure} ../_static/csdsi2_fieldmapless_before_after.svg
+:alt: A 1.7 mm diffusion b=0 with a 92 ms readout before and after fieldmap-less correction, alternating, with the white-matter boundary.
+
+The diffusion b=0 from the table before and after correction with the T2w, alternating every two
+seconds, through the slice where the displacement is largest. The red line is the white-matter
+boundary from a SynthSeg segmentation of the T2w. The displacement is 2.5 mm at the median voxel of
+this slice; the frontal pile-up in the acquired image is the compressed signal the model restores.
+```
 
 ```{figure} ../_static/fieldmapless_sbref.png
 :alt: SBRef before and after correction with the white-matter boundary overlaid, and the field next to a topup field.

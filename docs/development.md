@@ -20,7 +20,7 @@ test-data fits; regenerate them after changing the CLI or the fits:
 
 ```bash
 python docs/tools/make_cli_pages.py
-python docs/tools/make_figures.py --fixtures testdata/fixtures --testdata-real <ds002737 at 1.8 mm> --real-out <its fit> --wm <white-matter mask> --b5k <BOLD5000 ses-01> --b5k-out <its fit> --b5k-wm <white-matter mask>
+python docs/tools/make_figures.py --fixtures testdata/fixtures --testdata-real <ds002737 at 1.8 mm> --real-out <its fit> --wm <white-matter mask> --b5k <BOLD5000 ses-01> --b5k-out <its fit> --b5k-wm <white-matter mask> --csdsi2 <CSDSI2 inputs> --csdsi2-t2w-out <its T2w fit> --csdsi2-gre-out <its fieldmap recovery fit>
 sphinx-build -W docs docs/_build/html
 ```
 

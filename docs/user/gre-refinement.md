@@ -38,13 +38,18 @@ unpile fit --epi b0.nii.gz --reference synb0.nii.gz --mask brain.nii.gz \
 
 The fieldmap must be in Hz on the EPI grid. A positive field moves signal toward the positive
 phase-encoding axis for `--pe-dir j` and the other way for `j-`. qsiprep's fieldmap workflow
-produces this from a phase-difference or two-phase acquisition. `--fieldmap-refine delta` keeps the
-fieldmap in place and only lets it bend; `pose,shim,delta` is the default.
+produces this from a phase-difference or two-phase acquisition.
+
+`--fieldmap-refine` chooses the terms. The default is `pose,shim`. Add `delta` only with a
+same-contrast reference (SynB0 or, on simulated data, the clean b=0): under the T2w metric the
+residual term pulls a good fieldmap away from the truth. With `delta` on and a same-contrast
+reference, the position is recovered too; without it, the position barely moves on real data.
 
 ## What to expect
 
-On the simulated `phasediff` dataset, TRXScan records the movement it applied to the fieldmap, so
-both the position and the field can be scored:
+On the simulated `phasediff` dataset TRXScan records the movement it applied to the fieldmap, so
+both the position and the field can be scored. With the clean b=0 as the reference and all three
+terms:
 
 | quantity | fieldmap as acquired | after refinement |
 |---|---|---|
@@ -58,14 +63,39 @@ both the position and the field can be scored:
 The same run.
 ```
 
-```{figure} ../_static/gre_refinement_before_after.svg
-:alt: The simulated b=0 before and after correction with the refined fieldmap, alternating.
+On real data there is no truth, but there is an independent field: FSL topup's from an AP/PA pair
+of the same session. On a 1.7 mm diffusion scan with a 92 ms readout and a same-shim GRE fieldmap
+(the HBCD protocol), scored against that field inside the brain:
 
-The b=0 of that run before and after correction, alternating every two seconds, with the
-white-matter boundary of the simulated subject in red.
+| fieldmap | reference | terms | correlation / slope / rms vs topup |
+|---|---|---|---|
+| as acquired (registered magnitude) | | | 0.952 / 0.99 / 1.38 mm |
+| as acquired | T2w | pose, shim | 0.958 / 1.02 / 1.35 mm |
+| as acquired | T2w | pose, shim, delta | 0.918 / 1.06 / 2.02 mm |
+| displaced by 5° / 4 mm | T2w | pose, shim | 0.887 / 0.99 / 2.25 mm (position moved 0.4°) |
+| displaced by 5° / 4 mm | topup-corrected b=0 | pose, shim, delta | 0.974 / 1.00 / 1.03 mm (position recovered: 5.1°) |
+
+Two things follow. A fieldmap that was registered properly is already close to the best field
+available, and refinement adds little. A fieldmap that is out of place is recovered only with a
+same-contrast reference and the residual term; the T2w metric does not see where the fieldmap
+belongs. In qsiprep that reference is the SynB0 image. The topup-corrected b=0 stands in for it in
+the last row because no SynB0 exists for this subject yet.
+
+```{figure} ../_static/csdsi2_panels.png
+:alt: The 1.7 mm b=0 as acquired, corrected without a fieldmap, corrected with the displaced-then-refined fieldmap, and the T2w; below, the four fields.
+
+The last row of the table. Top: the b=0 as acquired, corrected without a fieldmap, corrected with
+the displaced fieldmap after refinement, and the T2w, with the white-matter boundary from a SynthSeg
+segmentation of the T2w in red. Bottom: the field without a fieldmap, the fieldmap as displaced, the
+fieldmap after refinement, and topup's field from the AP/PA pair.
 ```
 
-On real data there is no truth. What can be checked is that the position unpile finds agrees with
-a rigid registration of the magnitude image, and that it does, to within a degree, on the data we
-have tried. A fieldmap with a large unwrapping failure is beyond the residual term; fix the
-unwrapping first.
+```{figure} ../_static/csdsi2_refinement_before_after.svg
+:alt: The b=0 before and after correction with the recovered fieldmap, alternating.
+
+The b=0 before and after correction with the recovered fieldmap, alternating every two seconds,
+through the slice where the displacement is largest.
+```
+
+A fieldmap with a large unwrapping failure is beyond the residual term; fix the unwrapping first.
+This fieldmap has one such voxel, a 58 mm spike where topup says 20 mm, and it stays.

@@ -172,6 +172,45 @@ def before_after_svg(before_path, after_path, mask_path, wm_path, disp_path, out
     open(out_file, "w").write(txt)
 
 
+def csdsi2_panels(cs, t2w_out, gre_out, out):
+    """Real 1.7 mm diffusion data with a 92 ms readout: the b=0 corrected without a fieldmap (T2w) and
+    with the displaced fieldmap recovered against a same-contrast reference, next to the T2w; below,
+    the fields next to topup's from the AP/PA pair."""
+    b0, img = vol(f"{cs}/AP_b0_mean.nii.gz")
+    t2, _ = vol(f"{cs}/T2w_in_b0.nii.gz")
+    c_t2w, _ = vol(f"{t2w_out}/corrected.nii.gz")
+    c_gre, _ = vol(f"{gre_out}/corrected.nii.gz")
+    f_t2w, _ = vol(f"{t2w_out}/field_hz.nii.gz")
+    f_gre, _ = vol(f"{gre_out}/field_hz.nii.gz")
+    g_moved, _ = vol(f"{cs}/gre_hz_in_b0_moved5deg4mm.nii.gz")
+    topup, _ = vol(f"{cs}/topup_field_hz.nii.gz")
+    disp, _ = vol(f"{gre_out}/disp_pe_mm.nii.gz")
+    mask = vol(f"{cs}/brain_mask.nii.gz")[0] > 0
+    wm = vol(f"{cs}/wm_mask.nii.gz")[0] > 0.5
+    z = best_slice(disp, mask)
+    aspect = img.header.get_zooms()[1] / img.header.get_zooms()[0]
+    m2 = axial(mask, z)
+    w2 = crop(axial(wm, z), m2, 6)
+    fig, axes = plt.subplots(2, 4, figsize=(12, 6.6))
+    for ax, a, t in zip(axes[0], [b0, c_t2w, c_gre, t2],
+                        ["b=0 as acquired\n(white-matter boundary in red)", "corrected without a fieldmap\n(T2w reference)",
+                         "corrected with the fieldmap\n(displaced 5° / 4 mm, then refined)", "T2w"]):
+        panel(ax, crop(axial(a, z), m2, 6), t, aspect=aspect)
+        if a is not t2:
+            overlay_boundary(ax, w2)
+    hz = 80
+    fields = [f_t2w - f_t2w[mask].mean(), g_moved - g_moved[mask].mean(), f_gre - f_gre[mask].mean(), topup - topup[mask].mean()]
+    for ax, a, t in zip(axes[1], fields, ["field without a fieldmap (Hz)", "fieldmap as displaced (Hz)", "fieldmap after refinement (Hz)", "FSL topup from the AP/PA pair (Hz)"]):
+        im = panel(ax, crop(axial(masked(a, mask), z), m2, 6), t, hz=hz, aspect=aspect)
+    cb = fig.colorbar(im, ax=axes[1, 3], fraction=0.046, pad=0.02)
+    cb.set_label("Hz, mean removed", fontsize=8)
+    d = np.abs(disp[:, :, z][m2])
+    fig.suptitle(f"1.7 mm diffusion b=0 with a 92 ms readout (HBCD protocol); this slice: displacement {np.median(d):.1f} mm at the median voxel, {np.percentile(d, 90):.1f} mm at the 90th percentile", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(f"{out}/csdsi2_panels.png", dpi=130)
+    plt.close(fig)
+
+
 def resolution_sweep(out):
     # from docs/user/fieldmapless.md: fields scored on the native grid in the same mask
     pd50 = [("3 (native)", 0.543, 3.92), ("2", 0.760, 2.71), ("1.5", 0.748, 2.72), ("1.2", 0.800, 2.45)]
@@ -224,6 +263,9 @@ if __name__ == "__main__":
     ap.add_argument("--b5k", required=True, help="BOLD5000 ses-01 inputs from the test data bundle (se_ap, t2w, brain_mask)")
     ap.add_argument("--b5k-out", required=True, help="unpile output directory of the BOLD5000 ses-01 T2w fit (native grid)")
     ap.add_argument("--b5k-wm", required=True, help="white-matter mask on the BOLD5000 ses-01 grid (SynthSeg of its T2w)")
+    ap.add_argument("--csdsi2", required=True, help="CSDSI2 inputs on the b=0 grid (AP_b0_mean, T2w_in_b0, brain_mask, wm_mask, gre_hz_in_b0_moved5deg4mm, topup_field_hz)")
+    ap.add_argument("--csdsi2-t2w-out", required=True, help="unpile output of the T2w fieldmap-less fit")
+    ap.add_argument("--csdsi2-gre-out", required=True, help="unpile output of the displaced-fieldmap refinement with a same-contrast reference")
     ap.add_argument("--out", default="docs/_static")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -236,4 +278,9 @@ if __name__ == "__main__":
                      f"{fx}/out/gre/disp_pe_mm.nii.gz", f"{a.out}/gre_refinement_before_after.svg", ("as acquired", "corrected"))
     resolution_sweep(a.out)
     two_blip(a.fixtures, a.out)
+    csdsi2_panels(a.csdsi2, a.csdsi2_t2w_out, a.csdsi2_gre_out, a.out)
+    before_after_svg(f"{a.csdsi2}/AP_b0_mean.nii.gz", f"{a.csdsi2_t2w_out}/corrected.nii.gz", f"{a.csdsi2}/brain_mask.nii.gz", f"{a.csdsi2}/wm_mask.nii.gz",
+                     f"{a.csdsi2_t2w_out}/disp_pe_mm.nii.gz", f"{a.out}/csdsi2_fieldmapless_before_after.svg", ("as acquired", "corrected"))
+    before_after_svg(f"{a.csdsi2}/AP_b0_mean.nii.gz", f"{a.csdsi2_gre_out}/corrected.nii.gz", f"{a.csdsi2}/brain_mask.nii.gz", f"{a.csdsi2}/wm_mask.nii.gz",
+                     f"{a.csdsi2_gre_out}/disp_pe_mm.nii.gz", f"{a.out}/csdsi2_refinement_before_after.svg", ("as acquired", "corrected"))
     print("figures written to", a.out)

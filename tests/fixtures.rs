@@ -223,6 +223,56 @@ fn phasediff_t2w_fieldmapless() {
     finish(fails);
 }
 
+/// Fieldmap refinement with the T2w as the reference and a joint pose: both pose sets at once.
+#[test]
+fn phasediff_fieldmap_with_t2w_pose() {
+    let Some(dir) = fixture("phasediff") else {
+        return;
+    };
+    let meta = json(&dir.join("meta.json"));
+    let truth_xfm = dir.join(
+        meta["truth_xfm"]["fmap"]
+            .as_str()
+            .expect("fmap truth transform"),
+    );
+    let mut fails = Vec::new();
+    let s = fit(
+        &dir,
+        "gre_t2w",
+        &[
+            "--reference",
+            dir.join("T2w.nii.gz").to_str().unwrap(),
+            "--metric",
+            "lncc",
+            "--window",
+            "5",
+            "--pose",
+            "--lam",
+            "1",
+            "--fieldmap",
+            dir.join("gre_hz.nii.gz").to_str().unwrap(),
+            "--fieldmap-refine",
+            "pose,shim,delta",
+            "--truth-xfm",
+            truth_xfm.to_str().unwrap(),
+        ],
+    );
+    expect(
+        &mut fails,
+        "phasediff fieldmap + T2w pose: field corr",
+        s["field"]["corr"].as_f64().unwrap(),
+        0.5,
+        1.0,
+    );
+    // the T2w metric only partly locates the fieldmap: guard the combination against crashing and
+    // against leaving the fieldmap worse than it came
+    let id = s["gre_pose_vs_truth"]["identity_rotation_deg"]
+        .as_f64()
+        .unwrap();
+    expect(&mut fails, "phasediff fieldmap + T2w pose: fieldmap pose residual rotation deg (not worse than as acquired)", s["gre_pose_vs_truth"]["rotation_deg"].as_f64().unwrap(), 0.0, id + 1.0);
+    finish(fails);
+}
+
 /// Two opposite-polarity images, no reference.
 #[test]
 fn rpe_two_blip() {

@@ -105,8 +105,11 @@ pub fn optimize(
                     .require_grad();
                 let pt = if opt.pose {
                     Some(
-                        Tensor::<1>::from_data(TensorData::new(x[nc..].to_vec(), [6]), device)
-                            .require_grad(),
+                        Tensor::<1>::from_data(
+                            TensorData::new(x[nc..nc + 6].to_vec(), [6]),
+                            device,
+                        )
+                        .require_grad(),
                     )
                 } else {
                     None
