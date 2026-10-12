@@ -24,5 +24,16 @@ CPU-only and 10 MB instead of 60 MB.
 
 ## Python
 
-There is no Python module. qsiprep calls the binary as a subprocess. The commands in
-{doc}`quickstart` are what that call looks like.
+The wheel also installs a small `unpile` Python package that finds the binary and wraps it:
+
+```python
+import unpile
+
+r = unpile.fit("se_ap.nii.gz", "brain_mask.nii.gz", "out", sidecar="se_ap.json",
+               reference="t2w.nii.gz", metric="lncc", pose=True, lam_mm=60)
+r.sdc_warp, r.corrected, r.score
+```
+
+`unpile.prepare` resamples a reference, mask and fieldmap onto the EPI grid, or onto a finer one,
+and needs `pip install "unpile[prep]"` (nibabel and nilearn). `python -m unpile ...` runs the binary
+with the same arguments as the console script. qsiprep uses this package from its own interface.

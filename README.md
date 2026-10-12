@@ -38,6 +38,9 @@ unpile fit --epi b0.nii.gz --reference t2w.nii.gz --mask brain.nii.gz \
 antsApplyTransforms -d 3 -i b0.nii.gz -r b0.nii.gz -t out/sdc_warp.nii.gz -o b0_unwarped.nii.gz
 ```
 
+The same from Python: `unpile.fit(epi, mask, out, sidecar=..., reference=..., metric="lncc", pose=True)`;
+`unpile.prepare` puts the inputs on the EPI grid first.
+
 With a fieldmap in Hz on the EPI grid, add `--fieldmap gre_hz.nii.gz`. With a second image of the
 opposite direction, use `--reverse-epi` instead of a reference. `--device wgpu` runs on a GPU;
 `--threads N` sizes the CPU thread pool.

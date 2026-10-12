@@ -84,3 +84,24 @@ jobs:
           python docs/tools/make_cli_pages.py bin/unpile
           git diff --exit-code -- docs/cli
       - run: sphinx-build -W docs docs/_build/html
+
+  wheel:
+    name: wheel (maturin build, install, Python tests)
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-shared-key: ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install maturin pytest
+      - run: maturin build --release --features wgpu --out dist
+      - run: pip install dist/*.whl
+      - name: console script, module shim, Python API
+        run: |
+          unpile --help > /dev/null
+          python -m unpile --help > /dev/null
+          python -m pytest -q python/tests

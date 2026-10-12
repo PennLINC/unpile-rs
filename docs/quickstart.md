@@ -38,6 +38,19 @@ the T2w. The field agrees with FSL topup's from the session's spin-echo pair at 
 When the T2w has smaller voxels than the EPI, fitting on a finer grid helps; see {doc}`user/fieldmapless`.
 ```
 
+The same run from Python, with the sidecar read for you:
+
+```python
+import unpile
+
+r = unpile.fit(f"{D}/se_ap.nii.gz", f"{D}/brain_mask.nii.gz", "out/se", pe_dir="j-", total_readout_time=0.0755984,
+               reference=f"{D}/t2w.nii.gz", metric="lncc", pose=True, lam_mm=60)
+print(r.sdc_warp, r.score["field"] if "field" in r.score else "")
+```
+
+With your own data, `unpile.prepare(epi, "prep", mask=..., reference=..., sidecar=..., grid_mm=1.8)`
+puts everything on the EPI grid (or a finer one) first; pass its `acq_voxel_mm` on to `fit`.
+
 ## Refining a fieldmap
 
 With a fieldmap from the same session, pass it in Hz on the EPI grid and give a reference as well.

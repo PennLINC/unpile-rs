@@ -7,7 +7,7 @@ name = "unpile"
 description = "Susceptibility distortion correction for EPI: GRE fieldmap refinement and fieldmap-less correction against an anatomical reference"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dynamic = ["version"]
 classifiers = [
     "Programming Language :: Rust",
@@ -20,9 +20,16 @@ classifiers = [
 Repository = "https://github.com/PennLINC/unpile-rs"
 Documentation = "https://unpile.readthedocs.io"
 
+[project.optional-dependencies]
+# `unpile.prepare` resamples inputs onto the EPI grid
+prep = ["nibabel>=5", "nilearn>=0.10", "numpy>=1.24"]
+
 [tool.maturin]
-# a plain binary packaged as a console script; the wheel carries the wgpu backend, which only
-# loads the Vulkan/Metal driver when a GPU device is requested
+# the binary is packaged as a console script and the `unpile` Python package next to it wraps it
+# (python/unpile); the wheel carries the wgpu backend, which only loads the Vulkan/Metal driver when
+# a GPU device is requested
 bindings = "bin"
+python-source = "python"
+module-name = "unpile"
 features = ["wgpu"]
 strip = true

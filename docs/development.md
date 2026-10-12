@@ -11,7 +11,9 @@ UNPILE_FIXTURES=$PWD/testdata/fixtures cargo test --release --features wgpu --te
 ```
 
 `cargo fmt --check` and `cargo clippy --release --features wgpu -- -D warnings` must pass; CI runs
-both.
+both. The Python package lives in `python/unpile` and is packaged into the wheel by maturin
+(`python-source`); `maturin build --release --features wgpu --out dist`, `pip install dist/*.whl`
+and `python -m pytest python/tests` exercise it, as the CI wheel job does.
 
 ## Documentation
 
