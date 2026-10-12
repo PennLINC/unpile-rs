@@ -74,7 +74,7 @@ enum Cmd {
         /// GRE fieldmap in Hz on the EPI grid, used as a prior and refined against the EPI
         #[arg(long)]
         fieldmap: Option<String>,
-        /// which fieldmap terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta; add it only with a same-contrast reference)
+        /// which fieldmap terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta; add it only with a same-contrast reference); "none" applies the fieldmap as given
         #[arg(long, default_value = "pose,shim")]
         fieldmap_refine: String,
         /// ridge weight keeping the residual close to the fieldmap
@@ -401,6 +401,10 @@ fn main() -> Result<()> {
             std::fs::create_dir_all(&out)?;
             let (pe_axis, sign) = parse_pe_dir(&pe_dir)?;
             let ob = read3(&obs, None)?;
+            let codes = unpile::xfm::axcodes(&ob.header);
+            if codes != "LAS" {
+                println!("  note: the EPI is {codes}+; qsiprep and the tools it combines unpile with work in LAS+, and --pe-dir refers to this file's own voxel axes");
+            }
             // every use of trt below is "shift in grid voxels per Hz"; rescale once for a resampled grid
             let trt = match acq_voxel_mm {
                 Some(a) => {
@@ -538,7 +542,11 @@ fn main() -> Result<()> {
                 gre_refine_shim: gre_refine.contains("shim"),
                 gre_refine_delta: gre_refine.contains("delta"),
             };
+            // per-level data terms, for the report and for polarity checks from Python
+            let level_log: std::cell::RefCell<Vec<serde_json::Value>> =
+                std::cell::RefCell::new(Vec::new());
             let f = optimize(&mut pr, sp, &oo, &device, |r| {
+                level_log.borrow_mut().push(json!({"level": r.level, "h_mm": r.h_mm, "data_initial": r.data0, "data_final": r.data, "reg_final": r.reg, "evals": r.evals}));
                 let ps = match r.pose {
                     Some(p) => {
                         let rep = unpile::pose::pose_report(&burn::tensor::Tensor::<1>::from_data(
@@ -614,6 +622,12 @@ fn main() -> Result<()> {
                 )?;
             }
             let mut report = json!({"norm": norm, "levels": levels, "lam": lam});
+            {
+                let lv = level_log.borrow();
+                if let (Some(first), Some(last)) = (lv.first(), lv.last()) {
+                    report["data_term"] = json!({"initial": first["data_initial"], "final": last["data_final"], "metric": metric, "levels": *lv});
+                }
+            }
             // the reference pose (fixed EPI -> moving reference) and the GRE prior's pose (fixed EPI -> moving fieldmap)
             for (name, p) in [
                 ("pose", pr.pose.as_ref()),

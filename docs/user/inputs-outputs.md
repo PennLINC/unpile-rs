@@ -18,6 +18,23 @@ The direction refers to the voxel axes of the image as stored, the same way the 
 no conversion is needed. If the images were resampled onto a different grid, add `--acq-voxel-mm`
 with the acquired phase-encoding voxel size ({doc}`fieldmapless`).
 
+## Checking the axes
+
+qsiprep and the tools it combines unpile with work on LAS+ images. unpile itself follows the
+image's own affine, so it runs on any orientation, but `--pe-dir` refers to the voxel axes of the
+file it is given, and a sidecar describes the file as it was converted. Three checks cover this:
+
+- The binary prints a note when the EPI is not LAS+, and `unpile.warn_if_not_las` warns from Python.
+- `unpile.prepare` reorients everything to LAS+ and returns the phase-encoding direction carried
+  through the reorientation; `unpile.reorient_pe_dir(pe_dir, original, reoriented)` does that
+  translation on its own, so `j-` on the converted file becomes what it is on the reoriented one.
+- `unpile.check_polarity(epi, mask, reference, fieldmap, pe_dir, trt)` applies the fieldmap as
+  given under the sidecar's polarity and under the opposite one and compares how well each explains
+  the EPI. On the simulated dataset the right polarity wins by a margin of 0.82; the wrong one
+  doubles the distortion. A reference alone cannot decide the sign: with a free field the opposite
+  polarity fits the negated field and reaches the same data term, which is why this check needs a
+  fieldmap.
+
 A fieldmap for `--fieldmap` is in Hz on the EPI grid. A positive field moves signal toward the
 positive phase-encoding axis for `j` and away from it for `j-`. This is the convention of FSL topup's
 `--fout` and of the field TRXScan writes.

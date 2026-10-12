@@ -29,7 +29,7 @@ Options:
       --fieldmap <FIELDMAP>
           GRE fieldmap in Hz on the EPI grid, used as a prior and refined against the EPI
       --fieldmap-refine <FIELDMAP_REFINE>
-          which fieldmap terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta; add it only with a same-contrast reference) [default: pose,shim]
+          which fieldmap terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta; add it only with a same-contrast reference); "none" applies the fieldmap as given [default: pose,shim]
       --fieldmap-ridge <FIELDMAP_RIDGE>
           ridge weight keeping the residual close to the fieldmap [default: 1]
       --lam-mm <LAM_MM>

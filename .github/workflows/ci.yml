@@ -99,7 +99,7 @@ jobs:
           python-version: "3.12"
       - run: pip install maturin pytest
       - run: maturin build --release --features wgpu --out dist
-      - run: pip install dist/*.whl
+      - run: pip install "$(ls dist/*.whl)[prep]"
       - name: console script, module shim, Python API
         run: |
           unpile --help > /dev/null

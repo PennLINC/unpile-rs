@@ -78,6 +78,31 @@ pub fn apply(a: &Mat4, p: [f64; 3]) -> [f64; 3] {
     q
 }
 
+/// The world direction each voxel axis points to (nibabel's `aff2axcodes`): e.g. "LAS".
+pub fn axcodes(h: &NiftiHeader) -> String {
+    let a = ras_affine(h);
+    let mut used = [false; 3];
+    let mut out = String::new();
+    for j in 0..3 {
+        let col = [a[0][j], a[1][j], a[2][j]];
+        let mut best = (0usize, 0.0f64);
+        for i in 0..3 {
+            if !used[i] && col[i].abs() > best.1 {
+                best = (i, col[i].abs());
+            }
+        }
+        used[best.0] = true;
+        let positive = ["R", "A", "S"];
+        let negative = ["L", "P", "I"];
+        out.push_str(if col[best.0] >= 0.0 {
+            positive[best.0]
+        } else {
+            negative[best.0]
+        });
+    }
+    out
+}
+
 /// One voxel step along `pe_axis` in LPS world mm.
 pub fn pe_step_lps(h: &NiftiHeader, pe_axis: usize) -> [f64; 3] {
     let a = ras_affine(h);
