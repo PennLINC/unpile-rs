@@ -1,12 +1,31 @@
 name: Release wheels
+# Bare semver tags with an optional pre-release suffix (0.1.0, 0.2.0-rc1), as in cs_dmri. GitHub's
+# tag filters are globs: `+` is one or more of the preceding character, `*` any trailing characters.
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
 
 jobs:
+  verify-version:
+    name: tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -euo pipefail
+          PKG_VERSION=$(awk '/^\[package\]/ { s = 1; next } /^\[/ { s = 0 } s && /^version[[:space:]]*=/ { gsub(/^version[[:space:]]*=[[:space:]]*"|"[[:space:]]*$/, ""); print; exit }' Cargo.toml)
+          echo "Cargo.toml: $PKG_VERSION"
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then echo "not a tag push; skipping the check"; exit 0; fi
+          TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          echo "tag:        $TAG_VERSION"
+          # a Cargo pre-release is 0.2.0-rc1; maturin publishes it to PyPI as 0.2.0rc1
+          [ "$TAG_VERSION" = "$PKG_VERSION" ] || { echo "::error::tag $TAG_VERSION does not match Cargo.toml version $PKG_VERSION; bump or retag"; exit 1; }
+
   wheels:
     name: wheel ${{ matrix.target }}
+    needs: verify-version
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -37,7 +56,7 @@ jobs:
   publish:
     name: publish to PyPI
     needs: wheels
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
