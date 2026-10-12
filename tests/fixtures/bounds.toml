@@ -1,0 +1,21 @@
+# Recorded values for the integration tests: a regression is reported against these numbers.
+# Metrics are field agreement with the named reference in the bundle brain mask (SynthStrip, dropout
+# regions included, which lowers the T2w numbers relative to signal-mask scoring): corr, slope, rms_mm.
+# First recorded 2026-10-11 with the Rust port (wgpu), levels 24/12/6/3, 60 iterations, push model,
+# tent membership (the default; the Gaussian kernel gave 0.651/0.411/1.84 and 0.863/0.662/1.54).
+
+[ds002737.t2w_fieldmapless_sbref]
+# T2w LNCC + joint pose on the AP SBRef (lam_mm 60) vs the frozen TOPUP field of the SE pair
+reference = "se_topup_field_hz"
+corr = 0.656
+slope = 0.418
+rms_mm = 1.83
+tolerance = { corr = 0.03, slope = 0.05, rms_mm = 0.15 }
+
+[bold5000.ses01.t2w_fieldmapless_se]
+# T2w LNCC + joint pose on the SE AP image (lam_mm 60) vs the frozen TOPUP field of the SE pair
+reference = "se_topup_field_hz"
+corr = 0.851
+slope = 0.645
+rms_mm = 1.61
+tolerance = { corr = 0.03, slope = 0.05, rms_mm = 0.15 }

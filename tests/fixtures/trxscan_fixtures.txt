@@ -1,0 +1,9 @@
+# TRXScan recipes for unpile's CI fixtures (scripts/make_fixtures.py); regenerate the cache when this file changes.
+# `--set` values are JSON; lists carry no spaces so the lines split on whitespace.
+TRXSCAN_VERSION=0.2.1
+phasediff: phasediff_fieldmap --set voxel=3 --set subject="pdiff" --set noise=8 --set anat_offset=[3,-4,2,5,-3,4] --set fmap_offset=[-2,3,1,-4,2,3]
+fieldmapless: rpe_series --set voxel=3 --set subject="t2wreg" --set noise=8 --set pe=["AP"]
+oblique: rpe_series --set voxel=3 --set subject="oblique" --set noise=8 --set pe=["AP"] --set acq_rotation=[12,-8,5]
+rpe: rpe_series --set voxel=3 --set subject="rpe" --set noise=8
+# fold: echo spacing multiplier to be calibrated so that J<0 voxels appear at 3 mm (x2 folds at 1.7 mm)
+fold: rpe_series --set voxel=3 --set subject="fold" --set noise=8 --set echo_spacing_ms=1.638

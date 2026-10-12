@@ -1,0 +1,60 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  TRXSCAN_VERSION: "0.2.1"
+
+jobs:
+  build-test:
+    name: build, unit tests, operator check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --release --features wgpu -- -D warnings
+      - run: cargo build --release --features wgpu
+      - run: cargo test --release --features wgpu
+      - name: operator check against the stored PyTorch dumps
+        run: ./target/release/unpile --device flex check --dir testdata/rpe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unpile-linux-x86_64
+          path: target/release/unpile
+
+  fixtures:
+    name: truth-scored TRXScan fixtures
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "trxscan==${TRXSCAN_VERSION}" nibabel nilearn scikit-image scipy numpy
+      - name: phantom cache (TRXScan fetches sub-60501 from its GitHub release)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trxscan
+          key: trxscan-phantom-${{ env.TRXSCAN_VERSION }}
+      - name: fixture cache
+        id: fixtures
+        uses: actions/cache@v4
+        with:
+          path: testdata/fixtures
+          key: fixtures-${{ env.TRXSCAN_VERSION }}-${{ hashFiles('tests/fixtures/trxscan_fixtures.txt', 'scripts/prep_fixture.py', 'scripts/make_fixtures.py') }}
+      - name: generate fixtures
+        if: steps.fixtures.outputs.cache-hit != 'true'
+        run: python scripts/make_fixtures.py phasediff rpe
+      - name: truth-scored fits (CPU, levels 24/12/6, 20 iterations)
+        run: cargo test --release --features wgpu --test fixtures -- --nocapture --test-threads=1
+        env:
+          UNPILE_FIXTURES: ${{ github.workspace }}/testdata/fixtures

@@ -1,0 +1,25 @@
+{
+ "norm": 31.905296325683594,
+ "lncc_at_truth": 0.09663601219654083,
+ "ssd_at_truth": 0.011632517911493778,
+ "ssd_gain": 1.0179057121276855,
+ "bending_at_truth_hz_per_mm2": 0.2946597635746002,
+ "mask_dilate_iters": 4,
+ "pepolar_cost_at_truth": 0.004275752231478691,
+ "pose_vector": [
+  0.3,
+  -0.2,
+  0.5,
+  0.8,
+  -0.4,
+  0.6
+ ],
+ "pose_rotation_deg": 1.7694566249847412,
+ "pose_translation_mm": [
+  1.600000023841858,
+  -0.800000011920929,
+  1.2000000476837158
+ ],
+ "latent_iters": 20,
+ "latent_grad_reg": 0.02
+}

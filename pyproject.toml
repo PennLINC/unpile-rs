@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "unpile"
+description = "Susceptibility distortion correction for EPI: GRE fieldmap refinement and fieldmap-less correction against an anatomical reference"
+readme = "README.md"
+license = { text = "BSD-3-Clause" }
+requires-python = ">=3.9"
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "License :: OSI Approved :: BSD License",
+]
+
+[project.urls]
+Repository = "https://github.com/PennLINC/unpile-rs"
+
+[tool.maturin]
+# a plain binary packaged as a console script; the wheel carries the wgpu backend, which only
+# loads the Vulkan/Metal driver when a GPU device is requested
+bindings = "bin"
+features = ["wgpu"]
+strip = true
