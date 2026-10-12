@@ -149,8 +149,8 @@ def world_cut(img, mask, axis, index):
 
 
 def before_after_svg(before_path, after_path, mask_path, wm_path, disp_path, out_file, labels=("as acquired", "corrected")):
-    """A nireports before/after view (the kind qsiprep's reports use) with one large axial panel through
-    the slice where the displacement is largest, and the white-matter boundary drawn on both images. The alternation is set to run on its own (nireports pauses it
+    """A nireports before/after view (the kind qsiprep's reports use): two axial and two coronal panels
+    through the slices where the displacement is largest, with the white-matter boundary on both images. The alternation is set to run on its own (nireports pauses it
     until the pointer hovers, which never happens to an SVG embedded as an image)."""
     from nireports.reportlets.mosaic import plot_registration
     from nireports.reportlets.utils import compose_view
@@ -160,13 +160,22 @@ def before_after_svg(before_path, after_path, mask_path, wm_path, disp_path, out
     mask = np.asarray(mask_img.dataobj) > 0
     wm = nb.load(wm_path)
     disp = np.abs(np.asarray(nb.load(disp_path).dataobj, np.float32))
-    # one large axial panel through the slice with the largest mean displacement: at the page's column
-    # width that is about 4 pixels per mm, so a 3 mm shift is plainly visible
-    area = mask.sum(axis=(0, 1))
-    k = max((disp[:, :, k][mask[:, :, k]].mean(), k) for k in range(mask.shape[2]) if area[k] > 0.88 * area.max())[1]
-    cuts = {"z": [world_cut(before, mask, 2, k)]}
-    bg = plot_registration(before, "fixed-image", estimate_brightness=True, cuts=cuts, order=("z",), label=labels[0], contour=wm, compress="auto")
-    fg = plot_registration(after, "moving-image", estimate_brightness=True, cuts=cuts, order=("z",), label=labels[1], contour=wm, compress="auto")
+    # two axial and two coronal panels through the slices with the largest mean displacement, kept
+    # at least 15 mm apart: at the page's column width each panel is still about 2 pixels per mm
+    def best_cuts(axis, frac, n=2, min_sep_mm=15.0):
+        area = mask.sum(axis=tuple(a for a in range(3) if a != axis))
+        ranked = sorted(((np.take(disp, k, axis=axis)[np.take(mask, k, axis=axis)].mean(), k) for k in range(mask.shape[axis]) if area[k] > frac * area.max()), reverse=True)
+        vox_mm = float(np.linalg.norm(before.affine[:3, axis]))
+        chosen = []
+        for _, k in ranked:
+            if all(abs(k - c) * vox_mm >= min_sep_mm for c in chosen):
+                chosen.append(k)
+            if len(chosen) == n:
+                break
+        return [world_cut(before, mask, axis, k) for k in sorted(chosen)]
+    cuts = {"z": best_cuts(2, 0.88), "y": best_cuts(1, 0.5)}
+    bg = plot_registration(before, "fixed-image", estimate_brightness=True, cuts=cuts, order=("z", "y"), label=labels[0], contour=wm, compress="auto")
+    fg = plot_registration(after, "moving-image", estimate_brightness=True, cuts=cuts, order=("z", "y"), label=labels[1], contour=wm, compress="auto")
     compose_view(bg, fg, out_file=out_file)
     txt = open(out_file).read().replace("alternate none infinite paused", "alternate none infinite running").replace("animation: 1s ease-in-out", "animation: 2s ease-in-out")
     open(out_file, "w").write(txt)

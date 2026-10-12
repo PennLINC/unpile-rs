@@ -94,7 +94,7 @@ fieldmap after refinement, and topup's field from the AP/PA pair.
 :alt: The b=0 before and after correction with the recovered fieldmap, alternating.
 
 The b=0 before and after correction with the recovered fieldmap, alternating every two seconds,
-through the slice where the displacement is largest.
+through the slices where the displacement is largest.
 ```
 
 A fieldmap with a large unwrapping failure is beyond the residual term; fix the unwrapping first.

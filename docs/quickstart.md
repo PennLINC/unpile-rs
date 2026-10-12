@@ -33,8 +33,7 @@ warp and the T2w pose as an ITK affine.
 ```{figure} _static/fieldmapless_before_after.svg
 :alt: The spin-echo EPI before and after correction, alternating, with the white-matter boundary from the T2w.
 
-The image before and after correction, alternating every two seconds, through the slice where the
-displacement is largest. The red line is the white-matter boundary from a SynthSeg segmentation of
+The image before and after correction, alternating every two seconds, through the slices where the displacement is largest. The red line is the white-matter boundary from a SynthSeg segmentation of
 the T2w. The field agrees with FSL topup's from the session's spin-echo pair at 0.85 correlation.
 When the T2w has smaller voxels than the EPI, fitting on a finer grid helps; see {doc}`user/fieldmapless`.
 ```

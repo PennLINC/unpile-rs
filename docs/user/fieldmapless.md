@@ -68,7 +68,7 @@ On the simulated dataset the fitted position recovers a 7.1° / 5.1 mm misplacem
 :alt: A 1.7 mm diffusion b=0 with a 92 ms readout before and after fieldmap-less correction, alternating, with the white-matter boundary.
 
 The diffusion b=0 from the table before and after correction with the T2w, alternating every two
-seconds, through the slice where the displacement is largest. The red line is the white-matter
+seconds, through the slices where the displacement is largest. The red line is the white-matter
 boundary from a SynthSeg segmentation of the T2w. The displacement is 2.5 mm at the median voxel of
 this slice; the frontal pile-up in the acquired image is the compressed signal the model restores.
 ```
@@ -85,7 +85,6 @@ regions are only partly restored.
 ```{figure} ../_static/fieldmapless_before_after.svg
 :alt: A 2 mm spin-echo EPI before and after correction, alternating, with the white-matter boundary from the T2w.
 
-The BOLD5000 run from the table as a before/after view through the slice with the largest
-displacement, alternating every two seconds, with the white-matter boundary from a SynthSeg
+The BOLD5000 run from the table as a before/after view through the slices with the largest displacement, alternating every two seconds, with the white-matter boundary from a SynthSeg
 segmentation of the T2w. The displacement is 1 mm at the median voxel and 4 mm at the 90th percentile.
 ```
