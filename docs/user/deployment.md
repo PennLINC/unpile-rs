@@ -1,4 +1,4 @@
-# Packaging and GPU support
+# Deployment: containers, HPC and GPUs
 
 ## Shape of the artifact
 

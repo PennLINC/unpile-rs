@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Regenerate the figures in docs/_static from fixture and test-data fits.
+
+    python docs/tools/make_figures.py --fixtures testdata/fixtures --testdata-real <dir with ds002737 at 1.8 mm>
+                                      --real-out <out dir of the 1.8 mm ds002737 fit>
+
+The fixture panels use the `phasediff` and `rpe` fixtures after `cargo test --test fixtures` has
+written their `unpile/out/*` fits. The SBRef panels use the ds002737 inputs resampled to 1.8 mm
+(the two-thirds-voxel grid) and the fit written from them; see docs/user/fieldmapless.md.
+"""
+import argparse
+import json
+import os
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import nibabel as nb
+import numpy as np
+
+GRAY = dict(cmap="gray")
+FIELD = "RdBu_r"
+
+
+def vol(path):
+    img = nb.load(path)
+    return np.asarray(img.dataobj, np.float32).squeeze(), img
+
+
+def axial(a, z):
+    """A slice in display orientation: anterior up (RAS/LAS arrays: y increases to anterior)."""
+    return a[:, :, z].T
+
+
+def centre_slice(mask):
+    zs = np.where(mask.any(axis=(0, 1)))[0]
+    return int(np.round(zs.mean()))
+
+
+def crop(a2d, mask2d, margin=4):
+    """Crop a display slice to the mask's bounding box (plus a margin) to drop the empty field of view."""
+    ys, xs = np.where(mask2d)
+    if len(ys) == 0:
+        return a2d
+    y0, y1 = max(ys.min() - margin, 0), min(ys.max() + margin + 1, a2d.shape[0])
+    x0, x1 = max(xs.min() - margin, 0), min(xs.max() + margin + 1, a2d.shape[1])
+    return a2d[y0:y1, x0:x1]
+
+
+def masked(field, mask):
+    out = field.copy()
+    out[~mask] = np.nan
+    return out
+
+
+def panel(ax, a, title, mask=None, hz=None, aspect=1.0):
+    if hz is None:
+        lo, hi = np.percentile(a[np.isfinite(a)], [1, 99.5])
+        ax.imshow(a, origin="lower", vmin=lo, vmax=hi, aspect=aspect, **GRAY)
+    else:
+        im = ax.imshow(a, origin="lower", cmap=FIELD, vmin=-hz, vmax=hz, aspect=aspect)
+    ax.set_title(title, fontsize=9)
+    ax.set_axis_off()
+    return im if hz is not None else None
+
+
+def gre_refinement(fx, out):
+    d = os.path.join(fx, "phasediff", "unpile")
+    gre, img = vol(f"{d}/gre_hz.nii.gz")
+    truth, _ = vol(f"{d}/truth_field.nii.gz")
+    refined, _ = vol(f"{d}/out/gre/field_hz.nii.gz")
+    mask = vol(f"{d}/brain_mask.nii.gz")[0] > 0
+    score = json.load(open(f"{d}/out/gre/score.json"))
+    z = centre_slice(mask)
+    aspect = img.header.get_zooms()[1] / img.header.get_zooms()[0]
+    fig, axes = plt.subplots(1, 4, figsize=(11, 3.4))
+    hz = 60
+    m2 = axial(mask, z)
+    for ax, a, t in zip(axes, [gre, refined, truth, refined - truth],
+                        ["GRE as acquired\n(head moved 5.4° / 4 mm after the EPI)", "refined by unpile\n(pose + shim + residual)",
+                         "true field", "refined − true"]):
+        im = panel(ax, crop(axial(masked(a, mask), z), m2), t, hz=hz, aspect=aspect)
+    cb = fig.colorbar(im, ax=axes[3], fraction=0.046, pad=0.02)
+    cb.set_label("Hz", fontsize=8)
+    p = score["gre_pose_vs_truth"]
+    fig.suptitle(f"GRE refinement on the TRXScan phasediff fixture (3 mm): pose residual "
+                 f"{p['rotation_deg']:.2f}° / {p['translation_mm']:.2f} mm from {p['identity_rotation_deg']:.1f}° / "
+                 f"{p['identity_translation_mm']:.1f} mm; field corr {score['field']['corr']:.3f}, rms {score['field']['rms_residual_mm']:.2f} mm",
+                 fontsize=9)
+    fig.tight_layout()
+    fig.savefig(f"{out}/gre_refinement.png", dpi=130)
+    plt.close(fig)
+
+
+def fieldmapless_sbref(real, real_out, out):
+    sb, img = vol(f"{real}/sbref_ap.nii.gz")
+    corr, _ = vol(f"{real_out}/corrected.nii.gz")
+    t2, _ = vol(f"{real}/t2w.nii.gz")
+    field, _ = vol(f"{real_out}/field_hz.nii.gz")
+    topup, _ = vol(f"{real}/se_topup_field_hz.nii.gz")
+    mask = vol(f"{real}/brain_mask.nii.gz")[0] > 0
+    z = centre_slice(mask) - 12
+    aspect = img.header.get_zooms()[1] / img.header.get_zooms()[0]
+    m2 = axial(mask, z)
+    field = field - field[mask].mean()  # the fit pins the in-brain mean (the pose carries the DC); compare structure
+    topup = topup - topup[mask].mean()
+    fig, axes = plt.subplots(2, 3, figsize=(9.5, 6.6))
+    for ax, a, t in zip(axes[0], [sb, corr, t2], ["SBRef as acquired", "corrected by unpile\n(T2w reference, joint pose)", "T2w reference"]):
+        panel(ax, crop(axial(a, z), m2, 8), t, aspect=aspect)
+    hz = 50
+    for ax, a, t in zip(axes[1], [field, topup, field - topup],
+                        ["unpile field (Hz, mean removed)", "FSL topup field from the\nspin-echo pair (Hz, mean removed)", "difference (Hz)"]):
+        im = panel(ax, crop(axial(masked(a, mask), z), m2, 8), t, hz=hz, aspect=aspect)
+    cb = fig.colorbar(im, ax=axes[1, 2], fraction=0.046, pad=0.02)
+    cb.set_label("Hz", fontsize=8)
+    fig.suptitle("Fieldmap-less correction of a 2.4 mm SBRef (OpenNeuro ds002737) fitted on a 1.8 mm grid", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(f"{out}/fieldmapless_sbref.png", dpi=130)
+    plt.close(fig)
+
+
+def resolution_sweep(out):
+    # from docs/user/fieldmapless.md: fields scored on the native grid in the same mask
+    pd50 = [("3 (native)", 0.543, 3.92), ("2", 0.760, 2.71), ("1.5", 0.748, 2.72), ("1.2", 0.800, 2.45)]
+    sbref = [("2.4 (native)", 0.656, 1.82), ("1.8", 0.740, 1.62), ("1.5", 0.713, 1.69), ("1.2", 0.711, 1.69)]
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.4))
+    for ax, rows, title in zip(axes, [pd50, sbref], ["TRXScan phasediff fixture (3 mm EPI), T2w reference, vs true field",
+                                                     "ds002737 SBRef (2.4 mm), T2w reference, vs spin-echo topup field"]):
+        x = np.arange(len(rows))
+        colors = ["#9db4c0" if i != 1 else "#2a6f97" for i in range(len(rows))]
+        ax.bar(x, [r[1] for r in rows], color=colors)
+        for i, r in enumerate(rows):
+            ax.text(i, r[1] + 0.01, f"{r[1]:.2f}\n{r[2]:.2f} mm", ha="center", va="bottom", fontsize=8)
+        ax.set_xticks(x, [r[0] for r in rows])
+        ax.set_xlabel("fitting grid (mm)", fontsize=9)
+        ax.set_ylim(0.4, 0.95)
+        ax.set_ylabel("field correlation", fontsize=9)
+        ax.set_title(title, fontsize=8.5)
+        ax.spines[["top", "right"]].set_visible(False)
+    fig.suptitle("Fitting grid: two thirds of the EPI voxel captures the gain (dark bar); rms residual below each bar", fontsize=9.5)
+    fig.tight_layout()
+    fig.savefig(f"{out}/resolution_sweep.png", dpi=130)
+    plt.close(fig)
+
+
+def two_blip(fx, out):
+    d = os.path.join(fx, "rpe", "unpile")
+    ap, img = vol(f"{d}/b0_AP.nii.gz")
+    pa, _ = vol(f"{d}/b0_PA.nii.gz")
+    corr, _ = vol(f"{d}/out/pepolar/corrected.nii.gz")
+    clean, _ = vol(f"{d}/clean_b0.nii.gz")
+    mask = vol(f"{d}/brain_mask.nii.gz")[0] > 0
+    z = centre_slice(mask)
+    aspect = img.header.get_zooms()[1] / img.header.get_zooms()[0]
+    fig, axes = plt.subplots(1, 4, figsize=(11, 3.2))
+    m2 = axial(mask, z)
+    for ax, a, t in zip(axes, [ap, pa, corr, clean], ["b=0, AP", "b=0, PA", "corrected AP", "simulated truth (no distortion)"]):
+        panel(ax, crop(axial(a, z), m2, 6), t, aspect=aspect)
+    fig.suptitle("Two opposite-polarity images (TRXScan rpe fixture, 3 mm)", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(f"{out}/two_blip.png", dpi=130)
+    plt.close(fig)
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fixtures", default="testdata/fixtures")
+    ap.add_argument("--testdata-real", required=True, help="ds002737 inputs on the 1.8 mm grid")
+    ap.add_argument("--real-out", required=True, help="unpile output directory of the 1.8 mm ds002737 fit")
+    ap.add_argument("--out", default="docs/_static")
+    a = ap.parse_args()
+    os.makedirs(a.out, exist_ok=True)
+    gre_refinement(a.fixtures, a.out)
+    fieldmapless_sbref(a.testdata_real, a.real_out, a.out)
+    resolution_sweep(a.out)
+    two_blip(a.fixtures, a.out)
+    print("figures written to", a.out)

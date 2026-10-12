@@ -16,7 +16,7 @@ use unpile::xfm::{read_itk_affine, write_itk_affine_txt};
 #[derive(Parser)]
 #[command(
     name = "unpile",
-    about = "Susceptibility distortion correction with a mass-conserving pushforward model"
+    about = "Susceptibility distortion correction for EPI: refine a measured GRE fieldmap against the EPI, or estimate the field from an anatomical reference (fieldmap-less); opposite-polarity pairs are also supported"
 )]
 struct Cli {
     /// compute device: flex (pure-Rust CPU) or wgpu (Vulkan/Metal/WebGPU, needs the `wgpu` feature)
@@ -51,58 +51,76 @@ fn make_device(name: &str) -> Device {
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum Cmd {
-    /// Single-blip fit: observed EPI against a reference image.
+    /// Estimate the field: one EPI against a reference (optionally with a GRE prior), or two EPIs of opposite polarity.
     Fit {
+        /// the distorted EPI image (a b=0 mean, an SBRef, a BOLD mean); every other image must be on its grid
         #[arg(long)]
         obs: String,
         /// second blip with the opposite polarity (two-blip mode; --reference is then ignored)
         #[arg(long)]
         pa: Option<String>,
+        /// undistorted reference on the EPI grid: same contrast (SynB0, a clean b=0) with --metric ssd, or a T2w with --metric lncc
         #[arg(long)]
         reference: Option<String>,
         /// estimate a rigid pose of the reference jointly (single blip)
         #[arg(long, default_value_t = false)]
         pose: bool,
+        /// two-blip mode: also estimate a rigid pose of the second image
         #[arg(long, default_value_t = false)]
         blip_pose: bool,
+        /// two-blip mode: also estimate an intensity gain of the second image
         #[arg(long, default_value_t = false)]
         blip_gain: bool,
         /// GRE fieldmap (Hz, on the EPI grid, our sign convention) used as a prior
         #[arg(long)]
         gre: Option<String>,
+        /// which GRE terms to refine: a rigid pose of the fieldmap, a harmonic shim polynomial, a smooth residual (delta)
         #[arg(long, default_value = "pose,shim,delta")]
         gre_refine: String,
+        /// ridge weight keeping the residual close to the GRE prior
         #[arg(long, default_value_t = 1.0)]
         gre_ridge: f32,
         /// penalty in displacement units: lam = lam_mm * (TRT * vox_pe)^2 (overrides --lam)
         #[arg(long)]
         lam_mm: Option<f32>,
+        /// brain mask on the EPI grid (the data term is evaluated inside a dilation of it)
         #[arg(long)]
         mask: String,
+        /// output directory: field_hz, disp_pe_mm, corrected, sdc_warp (ITK), pose transforms, score.json
         #[arg(long)]
         out: String,
+        /// TotalReadoutTime of the EPI in seconds (from the BIDS sidecar)
         #[arg(long)]
         trt: f32,
         /// PE voxel size of the ACQUISITION (mm) when the images were resampled onto another grid:
         /// Hz x TRT is a shift in acquired voxels, so the shift per grid voxel scales by acq/grid
         #[arg(long)]
         acq_voxel_mm: Option<f32>,
+        /// voxel axis of phase encoding: 0, 1 or 2 for i, j, k of PhaseEncodingDirection
         #[arg(long, default_value_t = 1)]
         pe_axis: usize,
+        /// polarity: -1 for a PhaseEncodingDirection ending in "-" (j-), +1 otherwise; pass as --sign=-1
         #[arg(long, default_value_t = -1.0)]
         sign: f32,
+        /// control-grid spacings in mm, coarse to fine
         #[arg(long, default_value = "24,12,6,3")]
         levels: String,
+        /// bending-energy penalty in field units (prefer --lam-mm)
         #[arg(long, default_value_t = 0.1)]
         lam: f32,
+        /// L-BFGS iterations per level and round
         #[arg(long, default_value_t = 60)]
         iters: usize,
+        /// data term: ssd for a same-contrast reference, lncc (local normalized cross-correlation) for a T2w
         #[arg(long, default_value = "ssd")]
         metric: String,
+        /// forward model: push (mass-conserving pushforward) or pull_lag (Lagrangian unwarp-and-compare)
         #[arg(long, default_value = "push")]
         model: String,
+        /// LNCC window in voxels
         #[arg(long, default_value_t = 5)]
         window: usize,
+        /// true field (Hz, on the EPI grid) to score against: TRXScan truth or a reference method's field
         #[arg(long)]
         truth_field: Option<String>,
         /// ITK affine (.txt/.mat/.h5) the reference pose is scored against (fixed EPI -> moving reference)
@@ -123,17 +141,22 @@ enum Cmd {
         /// six pose parameters as the optimizer reports them (rx,ry,rz,tx,ty,tz in POSE_ROT/POSE_TRANS units)
         #[arg(long)]
         pose: Option<String>,
+        /// output directory
         #[arg(long)]
         out: String,
+        /// TotalReadoutTime of the EPI in seconds
         #[arg(long)]
         trt: f32,
+        /// voxel axis of phase encoding
         #[arg(long, default_value_t = 1)]
         pe_axis: usize,
+        /// polarity, as for fit
         #[arg(long, default_value_t = -1.0)]
         sign: f32,
     },
     /// Compare the operators with the PyTorch reference dumps in a testdata directory.
     Check {
+        /// directory with the dumps (testdata/rpe in the repository)
         #[arg(long)]
         dir: String,
     },

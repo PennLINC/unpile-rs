@@ -1,5 +1,8 @@
 # unpile (Rust)
 
+Documentation: https://unpile.readthedocs.io (built from `docs/`; the user guide has worked examples
+with figures and the validation numbers behind every claim).
+
 Susceptibility distortion correction for EPI, built for two jobs: refining a measured GRE fieldmap
 against the EPI it is meant to correct, and fieldmap-less correction against an anatomical reference.
 It is a Rust port of a PyTorch prototype on [Burn](https://burn.dev),

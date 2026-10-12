@@ -63,3 +63,24 @@ jobs:
         run: cargo test --release --features wgpu --test fixtures -- --nocapture --test-threads=1
         env:
           UNPILE_FIXTURES: ${{ github.workspace }}/testdata/fixtures
+
+  docs:
+    name: docs (Sphinx, CLI pages in sync)
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: unpile-linux-x86_64
+          path: bin
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r docs/requirements.txt
+      - name: CLI pages match the binary's --help
+        run: |
+          chmod +x bin/unpile
+          python docs/tools/make_cli_pages.py bin/unpile
+          git diff --exit-code -- docs/cli
+      - run: sphinx-build -W docs docs/_build/html

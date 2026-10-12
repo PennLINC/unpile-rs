@@ -1,4 +1,39 @@
-# CI fixtures
+# Development
+
+## Build and test
+
+```bash
+cargo build --release --features wgpu          # the binary, with the GPU backend
+cargo test --release --features wgpu           # unit tests
+./target/release/unpile check --dir testdata/rpe   # operators vs the PyTorch dumps
+python scripts/make_fixtures.py phasediff rpe  # TRXScan fixtures into testdata/fixtures
+UNPILE_FIXTURES=$PWD/testdata/fixtures cargo test --release --features wgpu --test fixtures -- --nocapture
+```
+
+`cargo fmt --check` and `cargo clippy --release --features wgpu -- -D warnings` must pass; CI runs
+both.
+
+## Documentation
+
+The CLI pages are generated from the binary's `--help` output and the figures from fixture and
+test-data fits; regenerate them after changing the CLI or the fits:
+
+```bash
+python docs/tools/make_cli_pages.py
+python docs/tools/make_figures.py --fixtures testdata/fixtures --testdata-real <ds002737 at 1.8 mm> --real-out <its fit>
+sphinx-build -W docs docs/_build/html
+```
+
+## Code layout
+
+`src/ops.rs` holds the operators (the pushforward splat, interpolation, box and Gaussian filters,
+the LNCC loss, bending energy), `src/field.rs` the B-spline control grid, `src/problem.rs` the data
+terms (reference, GRE prior, two-blip latent image), `src/pose.rs` the rigid pose, `src/optimize.rs`
+the coarse-to-fine L-BFGS driver with `src/lbfgs.rs`, `src/xfm.rs` the ITK outputs and truth
+scoring, `src/io.rs` NIfTI I/O, and `src/profile.rs` the per-operation timer behind
+`UNPILE_PROFILE`.
+
+## CI fixtures
 
 Two tiers, as in qsiprep: TRXScan fixtures with ground truth, generated at CI time from a spec and
 cached on its checksum, and a small bundle of derived OpenNeuro data hosted as a GitHub release.
@@ -7,7 +42,7 @@ residual) and fieldmap-less correction against an anatomical reference. Two-blip
 supported and tested, but as a plain mode; the frozen TOPUP fields in the bundle are used as
 consistency references, not as a competitor.
 
-## Budget
+### Budget
 
 CI runners have no GPU, so the tests use the pure-Rust CPU backend (`--device flex`, Burn's
 `burn-flex`). Three things made it fast enough for per-PR tests (all measured pinned to four cores,
@@ -43,7 +78,7 @@ full-schedule real-data fit is about six minutes on four cores, which puts the O
 within reach of a per-PR job too; BOLD5000 at 2 mm stays nightly. The 1.7 mm fold fixture remains
 a GPU-only local benchmark.
 
-## Tier 1: TRXScan fixtures (truth-scored)
+### Tier 1: TRXScan fixtures (truth-scored)
 
 `tests/fixtures/trxscan_fixtures.txt` lists the recipes (TRXScan 0.2.1 parameters only). CI installs
 `trxscan==<version>`, fetches the `sub-60501` phantom (TRXScan's own GitHub-release download, cached),
@@ -63,7 +98,7 @@ derivative, the prep step unwraps the simulated phase difference (low noise, few
 The T2w and the GRE must be resampled onto the EPI grid in the prep step: the CLI refuses inputs on
 another grid. Head, texture and realistic GRE noise wait for a TRXScan release from `dwi-head`.
 
-## Tier 2: OpenNeuro bundle (consistency-scored)
+### Tier 2: OpenNeuro bundle (consistency-scored)
 
 `scripts/fetch_testdata.sh` downloads `unpile-testdata-<tag>.tar.gz` from the GitHub release and
 checks its sha256; the bundle's `registry.txt` checks every file. Published as release `v1` of
@@ -79,7 +114,7 @@ sidecars), `PROVENANCE.md` and `LICENSES.md` (ds001600 CC-BY, ds002737 and BOLD5
 The `ds001600/ap_resampled_from_3p75mm.nii.gz` image is a different acquisition with a different
 readout time and is not a matched two-blip partner; it is kept for reference only.
 
-## Mechanics
+### Mechanics
 
 - Integration tests live in `tests/` behind `UNPILE_FIXTURES` and `UNPILE_TESTDATA`; without the
   variables they skip.
