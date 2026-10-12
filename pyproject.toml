@@ -18,6 +18,7 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/PennLINC/unpile-rs"
+Documentation = "https://unpile.readthedocs.io"
 
 [tool.maturin]
 # a plain binary packaged as a console script; the wheel carries the wgpu backend, which only
