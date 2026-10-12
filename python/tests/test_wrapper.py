@@ -66,16 +66,20 @@ def test_check_polarity_on_fixture(tmp_path):
 
 
 @pytest.mark.skipif("UNPILE_FIXTURES" not in os.environ, reason="needs the TRXScan fixtures")
-def test_prepare_reorients_to_las(tmp_path):
+def test_prepare_refuses_non_las_and_reorient_is_explicit(tmp_path):
     nb = pytest.importorskip("nibabel")
     pytest.importorskip("nilearn")
     d = Path(os.environ["UNPILE_FIXTURES"]) / "phasediff" / "unpile"
-    # make an RAS copy of the LAS fixture image; prepare must bring it back to LAS and keep the direction
+    # an RAS copy of the LAS fixture image: prepare must refuse it, reorient must bring it back
     img = nb.load(d / "b0_AP.nii.gz")
     ras = img.as_reoriented(nb.orientations.ornt_transform(nb.orientations.io_orientation(img.affine), nb.orientations.axcodes2ornt(("R", "A", "S"))))
     nb.save(ras, tmp_path / "b0_ras.nii.gz")
     with pytest.warns(UserWarning):
         unpile.warn_if_not_las(tmp_path / "b0_ras.nii.gz")
-    p = unpile.prepare(tmp_path / "b0_ras.nii.gz", tmp_path / "prep", mask=d / "brain_mask.nii.gz", pe_dir="j-")
-    assert unpile.axcodes(p["epi"]) == ("L", "A", "S")
-    assert p["pe_dir"] == "j-"  # an x flip does not touch a j direction
+    with pytest.raises(ValueError, match="RAS\\+, not LAS\\+"):
+        unpile.prepare(tmp_path / "b0_ras.nii.gz", tmp_path / "prep", mask=d / "brain_mask.nii.gz", pe_dir="j-")
+    las_path, pe_dir = unpile.reorient(tmp_path / "b0_ras.nii.gz", "LAS", pe_dir="j-", out=tmp_path / "b0_las.nii.gz")
+    assert unpile.axcodes(las_path) == ("L", "A", "S")
+    assert pe_dir == "j-"  # an x flip does not touch a j direction
+    p = unpile.prepare(las_path, tmp_path / "prep", mask=d / "brain_mask.nii.gz", pe_dir=pe_dir)
+    assert unpile.axcodes(p["epi"]) == ("L", "A", "S") and p["pe_dir"] == "j-"

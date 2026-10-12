@@ -221,6 +221,28 @@ def warn_if_not_las(image: PathLike | Any, what: str = "the EPI") -> bool:
     return True
 
 
+def reorient(image: PathLike, orientation: str = "LAS", *, pe_dir: str | None = None, out: PathLike | None = None) -> tuple[Path, str | None]:
+    """Write `image` with its voxel axes permuted and flipped to `orientation` (e.g. "LAS"), and
+    return the new path with `pe_dir` carried through the change.
+
+    Nothing is resampled: the voxels are the same, only their order changes. This is the explicit
+    step `prepare` asks for when an EPI is not LAS+; the returned direction is the one to pass to
+    `fit`, and it may differ from the sidecar's.
+    """
+    import nibabel as nb
+
+    src = nb.load(str(image))
+    target = tuple(orientation)
+    if tuple(nb.aff2axcodes(src.affine)) == target:
+        return Path(image), pe_dir
+    ornt = nb.orientations.ornt_transform(nb.orientations.io_orientation(src.affine), nb.orientations.axcodes2ornt(target))
+    dst = src.as_reoriented(ornt)
+    out_path = Path(out) if out is not None else Path(image).with_name(Path(image).name.replace(".nii", f"_{orientation}.nii", 1))
+    nb.save(dst, str(out_path))
+    new_dir = reorient_pe_dir(pe_dir, src, dst) if pe_dir else None
+    return out_path, new_dir
+
+
 def check(testdata_dir: PathLike, *, device: str = "flex") -> str:
     """Run the operator check against the stored PyTorch dumps; returns its report."""
     return run(["check", "--dir", str(testdata_dir)], device=device).stdout
@@ -239,13 +261,13 @@ def prepare(
     sidecar: PathLike | Mapping[str, Any] | None = None,
     orientation: str | None = "LAS",
 ) -> dict[str, Any]:
-    """Put everything on the EPI grid, reoriented to LAS+ unless `orientation` is None, optionally
-    on a finer grid of `grid_mm` voxels.
+    """Put everything on the EPI grid, optionally on a finer grid of `grid_mm` voxels.
 
-    A finer grid keeps the detail of a T2w reference; two thirds of the EPI voxel is the usual
-    choice. Returns the new paths, `pe_dir` carried through the reorientation, and `acq_voxel_mm`
-    (the acquired phase-encoding voxel size, which `fit` needs on a resampled grid). Needs nibabel
-    and nilearn.
+    The EPI must be in `orientation` (LAS+ by default, the orientation qsiprep's tools work in);
+    otherwise this raises and names `reorient`, which does the change explicitly. A finer grid keeps
+    the detail of a T2w reference; two thirds of the EPI voxel is the usual choice. Returns the new
+    paths, `pe_dir` and `acq_voxel_mm` (the acquired phase-encoding voxel size, which `fit` needs on
+    a resampled grid). Needs nibabel and nilearn.
     """
     import nibabel as nb
     import numpy as np
@@ -257,11 +279,13 @@ def prepare(
     if pe_dir is None and sidecar is not None:
         pe_dir, _ = sidecar_values(sidecar)
     if orientation is not None and tuple(nb.aff2axcodes(epi_img.affine)) != tuple(orientation):
-        src = epi_img
-        ornt = nb.orientations.ornt_transform(nb.orientations.io_orientation(src.affine), nb.orientations.axcodes2ornt(tuple(orientation)))
-        epi_img = src.as_reoriented(ornt)
-        if pe_dir:
-            pe_dir = reorient_pe_dir(pe_dir, src, epi_img)
+        found = "".join(nb.aff2axcodes(epi_img.affine))
+        raise ValueError(
+            f"the EPI is {found}+, not {orientation}+. unpile does not reorient images on its own, because a "
+            f"reorientation changes which voxel axis is phase-encode. Reorient explicitly first, e.g. "
+            f"epi, pe_dir = unpile.reorient(epi, {orientation!r}, pe_dir=pe_dir, out=...), which also carries "
+            f"the phase-encoding direction through the change; or pass orientation=None to skip this check."
+        )
     axis = "ijk".index(pe_dir[0]) if pe_dir else 1
     acq_voxel = float(epi_img.header.get_zooms()[axis])
     if grid_mm is not None and abs(grid_mm - acq_voxel) > 1e-3:

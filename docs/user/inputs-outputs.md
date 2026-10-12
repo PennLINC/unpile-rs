@@ -25,9 +25,11 @@ image's own affine, so it runs on any orientation, but `--pe-dir` refers to the 
 file it is given, and a sidecar describes the file as it was converted. Three checks cover this:
 
 - The binary prints a note when the EPI is not LAS+, and `unpile.warn_if_not_las` warns from Python.
-- `unpile.prepare` reorients everything to LAS+ and returns the phase-encoding direction carried
-  through the reorientation; `unpile.reorient_pe_dir(pe_dir, original, reoriented)` does that
-  translation on its own, so `j-` on the converted file becomes what it is on the reoriented one.
+- `unpile.prepare` refuses an EPI that is not LAS+ and names the fix. Nothing reorients on its own,
+  because a reorientation changes which voxel axis is phase-encode: `unpile.reorient(epi, "LAS",
+  pe_dir=...)` does it when you call it, writes a new file, and returns the direction carried through
+  the change, so `j-` on the converted file becomes what it is on the reoriented one.
+  `unpile.reorient_pe_dir(pe_dir, original, reoriented)` is that translation on its own.
 - `unpile.check_polarity(epi, mask, reference, fieldmap, pe_dir, trt)` applies the fieldmap as
   given under the sidecar's polarity and under the opposite one and compares how well each explains
   the EPI. On the simulated dataset the right polarity wins by a margin of 0.82; the wrong one

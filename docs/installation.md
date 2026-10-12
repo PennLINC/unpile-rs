@@ -34,7 +34,8 @@ r = unpile.fit("se_ap.nii.gz", "brain_mask.nii.gz", "out", sidecar="se_ap.json",
 r.sdc_warp, r.corrected, r.score
 ```
 
-`unpile.prepare` reorients the EPI to LAS+, resamples a reference, mask and fieldmap onto its grid
-or onto a finer one, and carries the sidecar's phase-encoding direction through the reorientation;
-it needs `pip install "unpile[prep]"` (nibabel and nilearn). `python -m unpile ...` runs the binary
+`unpile.prepare` resamples a reference, mask and fieldmap onto the EPI grid or onto a finer one. It
+requires the EPI to be LAS+ and refuses otherwise; `unpile.reorient` does the reorientation when
+asked and carries the phase-encoding direction through it. Both need `pip install "unpile[prep]"`
+(nibabel and nilearn). `python -m unpile ...` runs the binary
 with the same arguments as the console script. qsiprep uses this package from its own interface.
