@@ -92,6 +92,31 @@ def pull(img, disp):
     return padded.gather(-1, i0) * (1 - w) + padded.gather(-1, i0 + 1) * w
 
 
+def shift_line(f, t_vox):
+    """The line moved by t voxels (positive = towards higher index), linear interpolation, edges held.
+
+    On one line this is all that remains of the rigid pose unpile fits to a fieldmap: rotations and
+    the other two translations move the field between lines, not along one.
+    """
+    n = f.shape[-1]
+    y = torch.arange(n, dtype=f.dtype)
+    p = (y - t_vox).clamp(0, n - 1)
+    i0 = p.floor().clamp(0, n - 2)
+    a = p - i0
+    i0 = i0.long()
+    return f[..., i0] * (1 - a) + f[..., i0 + 1] * a
+
+
+def shim_basis(n, vox_mm, scale_mm):
+    """The harmonic shim terms of src/problem.rs restricted to one line: 1, u and u^2.
+
+    Along a line the constant, the three linear and the five second-order solid harmonics span only
+    these three functions of u = position / scale_mm (scale = the grid's largest half-extent).
+    """
+    u = (torch.arange(n, dtype=torch.float32) - (n - 1) / 2) * vox_mm / scale_mm
+    return torch.stack([torch.ones(n), u, u * u])
+
+
 def point_splat(img, disp):
     """Forward prediction by point splatting, the K-Unit form of FD-Net (Alkilani et al., 2023).
 
