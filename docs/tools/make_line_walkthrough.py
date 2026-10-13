@@ -297,11 +297,13 @@ def fig_push_pull(d, out):
         return p * lm.ssd_with_gain(p, d["obs"], d["near"])[1]
 
     interp = scaled(lm.forward_interp(d["ref"], disp, "cubic"))
+    points = scaled(lm.point_splat(d["ref"], disp))
     variants = {v: scaled(lm.forward_interp(d["ref"], disp, v)) for v in ("cubic", "linear", "central")}
     nums = {}
     for name, sel in [("pileup", (jac < 0.85) & d["brain"]), ("stretched", (jac > 1.15) & d["brain"]),
                       ("other_brain", (jac >= 0.85) & (jac <= 1.15) & d["brain"])]:
-        nums[name] = dict(n=int(sel.sum()), push=rms(push - d["obs"], sel), forward_interp=rms(interp - d["obs"], sel),
+        nums[name] = dict(n=int(sel.sum()), push=rms(push - d["obs"], sel), point_splat=rms(points - d["obs"], sel),
+                          forward_interp=rms(interp - d["obs"], sel),
                           pull_jac=rms(pull_jac - d["ref"], sel), pull_plain=rms(plain - d["ref"], sel))
     pile = (jac < 0.85) & d["brain"]
     nums["forward_interp_variants_pileup"] = {v: rms(p - d["obs"], pile) for v, p in variants.items()}

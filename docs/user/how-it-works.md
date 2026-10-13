@@ -146,8 +146,17 @@ and the operator that moves signal between the undistorted and the distorted gri
 Many correction methods resample the acquired image at the displaced positions to
 undo the distortion, and compare the result with an undistorted image. We refer to this as a
 *pull* model, and to the opposite direction, predicting the acquired image from an undistorted
-one, as a *push* model. Registration-based fieldmap-less correction, such as SyN-SDC, is a pull
-model that resamples without changing intensities (Wang et al., 2017).
+one, as a *push* model.
+
+Fieldmap-less correction against an anatomical reference has used the pull direction since Kybic
+et al. (2000). They registered each EPI slice to an undistorted anatomical slice with a cubic
+B-spline deformation restricted to the phase-encoding direction, estimated coarse to fine by least
+squares. Intensity changes were not modelled; high-pass filtering and histogram equalisation made
+the two images comparable instead. SyN-SDC likewise resamples without changing intensities (Wang et
+al., 2017). Reversed-gradient methods such as HySCO (Ruthotto et al., 2013) and its GPU
+implementation PyHySCO (Julian and Ruthotto, 2024) use the pull model of Chang and Fitzpatrick
+(1992): both acquisitions are resampled at the displaced positions, multiplied by the Jacobian of
+the displacement, and compared with each other.
 
 Andersson et al. (2003), the method on which FSL's TOPUP is based, describe the image formation of
 spin-echo EPI as a push: a matrix $K$ maps each column of the undistorted object to the distorted
@@ -170,26 +179,39 @@ minimises the squared difference from the acquired volume by Gauss–Newton step
 estimates eddy-current fields and head motion in this way; the susceptibility field is not
 estimated but supplied, in practice by TOPUP.
 
-unpile estimates the susceptibility field itself in the push direction. The obstacle identified
-by Andersson et al. (2003), the derivatives of the objective with respect to the field, is removed
-by automatic differentiation, which computes them through the forward model at a cost comparable to
-evaluating the model itself.
+FD-Net (Alkilani et al., 2023) estimates the susceptibility field in the push direction. A network
+trained across subjects predicts a field and an undistorted image from the two reversed
+phase-encoding acquisitions. Both acquisitions are predicted from that image with $\pm$ the field,
+and the network is trained to minimise the squared difference from the acquired images. The
+derivatives with respect to the field, the obstacle identified by Andersson et al. (2003), are
+obtained by automatic differentiation.
+
+unpile also estimates the susceptibility field in the push direction with automatic
+differentiation. It differs from FD-Net in three respects: the field is fitted to each subject by
+optimisation rather than predicted by a trained network; a single acquisition can be fitted against
+a reference image, with or without a rigid transformation; and the forward operator integrates
+cells rather than moving points, as described next.
 
 ### Operator
 
-Eddy's resampling into the acquisition (Eq. 5) samples the predicted image by spline
-interpolation at the source position of each acquired voxel and divides by the Jacobian. The splat
-instead integrates every reference cell that falls within each acquired voxel. Both conserve signal
-in the continuous limit; on a voxel grid they differ where the line is compressed. There an
-acquired voxel contains signal from about three reference voxels. Interpolation takes the value at
-one source position and scales it by the inverse Jacobian, about 3, which also triples any
-interpolation error. Integration sums the three values, which is how the acquired voxel was formed.
+Three forward operators appear in the methods above. Eddy's resampling into the acquisition
+(Eq. 5) samples the predicted image by spline interpolation at the source position of each acquired
+voxel and divides by the Jacobian. FD-Net's K-Unit (Eqs. 3–6) moves each source voxel, as a point,
+to its displaced position and shares it between neighbouring acquired voxels with an interpolation
+kernel. The splat moves both edges of each source voxel and integrates the resulting cell over the
+acquired voxels. All three conserve signal in the continuous limit; on a voxel grid they differ
+where the line is compressed or stretched. In a compressed region an acquired voxel contains signal
+from about three reference voxels. Interpolation takes the value at one source position and scales
+it by the inverse Jacobian, about 3, which also triples any interpolation error. Point and cell
+splatting both sum the contributing voxels. Where the line is stretched, a point covers less of the
+acquired grid than the cell it represents, whereas a cell spreads over its full displaced width.
 
 Mass conservation along the phase-encoding line has a long history in reversed-gradient
 correction. Chang and Fitzpatrick (1992) matched the integrals of intensity along each line of two
-acquisitions with opposite gradient polarity. SuCor (Chigurupati and Garyfallidis, 2026) computes
-the same correspondence as a one-dimensional optimal transport map between the two line profiles,
-followed by smoothing across lines. Both methods require two acquisitions with opposite
+acquisitions with opposite gradient polarity. PyHySCO (Julian and Ruthotto, 2024) derives the same
+correspondence from one-dimensional optimal transport and uses it to initialise the field. SuCor
+(Chigurupati and Garyfallidis, 2026) uses the optimal transport map as the estimate itself,
+followed by smoothing across lines. All three require two acquisitions with opposite
 phase-encoding directions.
 
 ```{figure} ../_static/line_push_pull.svg
@@ -207,20 +229,20 @@ operators.
 
 | direction and operator | compared with | pile-up voxels (16) | stretched voxels (13) | other brain voxels (25) |
 |---|---|---|---|---|
-| push, splat | acquired b=0 | 12% | 8% | 10% |
+| push, cell splat | acquired b=0 | 12% | 8% | 10% |
+| push, point splat | acquired b=0 | 16% | 16% | 11% |
 | push, interpolation ÷ Jacobian | acquired b=0 | 36% | 10% | 11% |
 | pull, interpolation × Jacobian | reference | 18% | 6% | 8% |
 | pull, interpolation only | reference | 155% | 22% | 9% |
 
-The interpolation row uses cubic-spline displacement with its analytic derivative and cubic
-B-spline image interpolation. Its pile-up value depends on how the Jacobian is evaluated between
-voxel centres: two other reasonable choices gave 25% and 52%. All three are well above the splat's
-12%. Outside the pile-up the four models perform similarly.
+The point-splat row uses a linear kernel. The interpolation row uses cubic-spline displacement
+with its analytic derivative and cubic B-spline image interpolation. Its pile-up value depends on how the Jacobian is evaluated between
+voxel centres: two other reasonable choices gave 25% and 52%. All three are well above the cell
+splat's 12%. Outside the pile-up and stretched regions the five models perform similarly.
 
 These comparisons concern a single acquisition and a reference on one simulated line, the setting
-of fieldmap-less correction. They are not comparisons with TOPUP or eddy as tools: TOPUP compares two
-acquisitions with each other and its approximation was validated in that setting, and eddy does
-not estimate the susceptibility field. The last row shows why resampling alone performs poorly in
+of fieldmap-less correction. They compare operators, not tools: TOPUP, HySCO and FD-Net compare
+or predict two acquisitions, and eddy does not estimate the susceptibility field. The last row shows why resampling alone performs poorly in
 pile-up regions: resampling cannot reduce the intensity of a voxel, so a registration that only
 resamples can reproduce a pile-up peak only by distorting the field.
 
@@ -419,6 +441,9 @@ the stored outputs were made.
 - Andersson, J. L. R., Skare, S., and Ashburner, J. (2003). How to correct susceptibility
   distortions in spin-echo echo-planar images: application to diffusion tensor imaging.
   *NeuroImage*, 20(2), 870–888.
+- Alkilani, A. Z., Çukur, T., and Saritas, E. U. (2023). FD-Net: an unsupervised deep
+  forward-distortion model for susceptibility artifact correction in EPI. *Magnetic Resonance in
+  Medicine*. doi:10.1002/mrm.29851.
 - Andersson, J. L. R., and Sotiropoulos, S. N. (2016). An integrated approach to correction for
   off-resonance effects and subject movement in diffusion MR imaging. *NeuroImage*, 125,
   1063–1078.
@@ -426,8 +451,15 @@ the stored outputs were made.
   the presence of field inhomogeneities. *IEEE Transactions on Medical Imaging*, 11, 319–329.
 - Chigurupati, S., and Garyfallidis, E. (2026). SuCor: susceptibility distortion correction via
   parameter-free and self-regularized optimal transport. arXiv:2603.16758.
+- Julian, A., and Ruthotto, L. (2024). PyHySCO: GPU-enabled susceptibility artifact distortion
+  correction in seconds. *Frontiers in Neuroscience*, 18, 1406821.
+- Kybic, J., Thévenaz, P., Nirkko, A., and Unser, M. (2000). Unwarping of unidirectionally
+  distorted EPI images. *IEEE Transactions on Medical Imaging*, 19(2), 80–93.
 - Liu, D. C., and Nocedal, J. (1989). On the limited memory BFGS method for large scale
   optimization. *Mathematical Programming*, 45, 503–528.
+- Ruthotto, L., Mohammadi, S., Heck, C., Modersitzki, J., and Weiskopf, N. (2013). Hyperelastic
+  susceptibility artifact correction of DTI in SPM. In *Bildverarbeitung für die Medizin 2013*,
+  Springer. doi:10.1007/978-3-642-36480-8_60.
 - Wang, S., Peterson, D. J., Gatenby, J. C., Li, W., Grabowski, T. J., and Madhyastha, T. M.
   (2017). Evaluation of field map and nonlinear registration methods for correction of
   susceptibility artifacts in diffusion MRI. *Frontiers in Neuroinformatics*, 11, 17.

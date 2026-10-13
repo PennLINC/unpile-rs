@@ -92,6 +92,19 @@ def pull(img, disp):
     return padded.gather(-1, i0) * (1 - w) + padded.gather(-1, i0 + 1) * w
 
 
+def point_splat(img, disp):
+    """Forward prediction by point splatting, the K-Unit form of FD-Net (Alkilani et al., 2023).
+
+    Each source voxel k is moved, as a point, to k + d_k and shared between the two nearest output
+    voxels with a linear kernel: K[j, k] = max(0, 1 - |k + d_k - j|). Positions are clipped to the line.
+    """
+    n = img.shape[-1]
+    k = torch.arange(n, dtype=img.dtype)
+    pos = (k + disp).clamp(0, n - 1)
+    kmat = (1 - (pos[None, :] - k[:, None]).abs()).clamp_min(0)  # rows: output voxels, columns: sources
+    return kmat @ img
+
+
 def forward_interp(img, disp, variant="cubic"):
     """Forward prediction by interpolation, the form of eq. 5 in Andersson and Sotiropoulos (2016).
 
