@@ -27,7 +27,7 @@ OpenNeuro data ({doc}`user/validation`).
 
 A simulated fieldmap acquired after a 5.4° / 4 mm head movement (left), the same fieldmap after
 unpile refined it against the EPI (second), the true field (third) and the difference (right).
-The movement is recovered to 0.8° / 0.6 mm and the field to 0.998 correlation.
+The movement is recovered to 0.9° / 0.7 mm and the field to 0.997 correlation.
 ```
 
 ```{toctree}
@@ -42,6 +42,7 @@ quickstart
 :maxdepth: 2
 :caption: User guide
 
+user/how-it-works
 user/gre-refinement
 user/fieldmapless
 user/opposite-polarity

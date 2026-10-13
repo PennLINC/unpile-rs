@@ -32,6 +32,8 @@ class FitResult:
     pose_xfm: Path | None
     fieldmap_pose_xfm: Path | None
     corrected_reverse: Path | None
+    reference_posed: Path | None = None
+    pose_composed_xfm: Path | None = None
     score: dict[str, Any] = field(default_factory=dict)
     log: str = ""
 
@@ -76,6 +78,8 @@ def fit(
     iters: int | None = None,
     truth_field: PathLike | None = None,
     truth_xfm: PathLike | None = None,
+    truth_fieldmap_xfm: PathLike | None = None,
+    reference_init_xfm: PathLike | None = None,
     device: str = "flex",
     threads: int | None = None,
     extra: Sequence[str] = (),
@@ -85,6 +89,9 @@ def fit(
     `pe_dir` and `total_readout_time` can come from `sidecar` instead. With `reference` and
     `metric="lncc"` the reference is a T2w; with `reverse_epi` the second image has the opposite
     phase-encoding direction; `fieldmap` is a GRE field in Hz on the EPI grid.
+    `reference_init_xfm` is the transform `prepare` applied to the reference (`reference_xfm` in its
+    result); with it the run also writes `pose_composed_xfm.txt`, from the EPI grid to the original
+    reference.
     """
     if sidecar is not None:
         pe_dir, total_readout_time = sidecar_values(sidecar)
@@ -97,7 +104,7 @@ def fit(
         pass
     out = Path(out_dir)
     args: list[str] = ["fit", "--epi", str(epi), "--mask", str(mask), "--out", str(out), "--pe-dir", pe_dir, "--total-readout-time", repr(float(total_readout_time))]
-    for flag, value in (("--reference", reference), ("--reverse-epi", reverse_epi), ("--fieldmap", fieldmap), ("--fieldmap-refine", fieldmap_refine), ("--metric", metric), ("--truth-field", truth_field), ("--truth-xfm", truth_xfm)):
+    for flag, value in (("--reference", reference), ("--reverse-epi", reverse_epi), ("--fieldmap", fieldmap), ("--fieldmap-refine", fieldmap_refine), ("--metric", metric), ("--truth-field", truth_field), ("--truth-xfm", truth_xfm), ("--truth-fieldmap-xfm", truth_fieldmap_xfm), ("--reference-init-xfm", reference_init_xfm)):
         if value is not None:
             args += [flag, str(value)]
     if pose:
@@ -124,6 +131,8 @@ def fit(
         pose_xfm=opt("pose_xfm.txt"),
         fieldmap_pose_xfm=opt("gre_pose_xfm.txt"),
         corrected_reverse=opt("corrected_pa.nii.gz"),
+        reference_posed=opt("reference_posed.nii.gz"),
+        pose_composed_xfm=opt("pose_composed_xfm.txt"),
         score=score,
         log=proc.stdout,
     )
@@ -347,6 +356,63 @@ def check(testdata_dir: PathLike, *, device: str = "flex") -> str:
     return run(["check", "--dir", str(testdata_dir)], device=device).stdout
 
 
+_LPS = (-1.0, -1.0, 1.0)
+
+
+def read_itk_affine(path: PathLike) -> Any:
+    """An ITK affine (.txt Insight Transform File or ANTs .mat) as a 4x4 RAS point map.
+
+    ITK's convention: the map takes a point of the fixed image to the point it is read from in the
+    moving image, the direction `antsApplyTransforms -t` uses. Rigid and affine transforms of the
+    AffineTransform / MatrixOffsetTransformBase kind are read; anything else raises.
+    """
+    import numpy as np
+
+    path = Path(path)
+    if path.suffix == ".mat":
+        from scipy.io import loadmat
+
+        mat = loadmat(str(path))
+        keys = [k for k in mat if k.startswith(("AffineTransform_", "MatrixOffsetTransformBase_"))]
+        if len(keys) != 1:
+            raise ValueError(f"{path}: expected one affine transform, found {sorted(k for k in mat if not k.startswith('__'))}")
+        params = np.asarray(mat[keys[0]], float).ravel()
+        fixed = np.asarray(mat.get("fixed", np.zeros(3)), float).ravel()
+    else:
+        kinds, params, fixed = [], None, np.zeros(3)
+        for line in Path(path).read_text().splitlines():
+            if line.startswith("Transform:"):
+                kinds.append(line.split(":", 1)[1].strip())
+            elif line.startswith("Parameters:"):
+                params = np.array(line.split(":", 1)[1].split(), float)
+            elif line.startswith("FixedParameters:"):
+                fixed = np.array(line.split(":", 1)[1].split(), float)
+        if len(kinds) != 1 or not kinds[0].startswith(("AffineTransform_", "MatrixOffsetTransformBase_")) or not kinds[0].endswith("_3_3"):
+            raise ValueError(f"{path}: expected one 3-D AffineTransform, found {kinds}")
+    if params is None or params.size != 12 or fixed.size != 3:
+        raise ValueError(f"{path}: expected 12 parameters and a 3-D centre")
+    m, t, c = params[:9].reshape(3, 3), params[9:], fixed
+    lps = np.eye(4)
+    lps[:3, :3] = m
+    lps[:3, 3] = t + c - m @ c
+    flip = np.diag(_LPS + (1.0,))
+    return flip @ lps @ flip
+
+
+def write_itk_affine(path: PathLike, ras: Any) -> Path:
+    """Write a 4x4 RAS point map as an Insight Transform File (LPS, centre 0)."""
+    import numpy as np
+
+    flip = np.diag(_LPS + (1.0,))
+    lps = flip @ np.asarray(ras, float) @ flip
+    values = list(lps[:3, :3].ravel()) + list(lps[:3, 3])
+    Path(path).write_text(
+        "#Insight Transform File V1.0\n#Transform 0\nTransform: AffineTransform_double_3_3\n"
+        "Parameters: " + " ".join(f"{v:.10f}" for v in values) + "\nFixedParameters: 0 0 0\n"
+    )
+    return Path(path)
+
+
 def prepare(
     epi: PathLike,
     out_dir: PathLike,
@@ -355,6 +421,7 @@ def prepare(
     reference: PathLike | None = None,
     fieldmap: PathLike | None = None,
     reverse_epi: PathLike | None = None,
+    reference_xfm: PathLike | None = None,
     grid_mm: float | None = None,
     pe_dir: str | None = None,
     sidecar: PathLike | Mapping[str, Any] | None = None,
@@ -367,6 +434,12 @@ def prepare(
     the detail of a T2w reference; two thirds of the EPI voxel is the usual choice. Returns the new
     paths, `pe_dir` and `acq_voxel_mm` (the acquired phase-encoding voxel size, which `fit` needs on
     a resampled grid). Needs nibabel and nilearn.
+
+    `reference_xfm` is a rigid or affine ITK transform (.txt or ANTs .mat) from the EPI to the
+    reference, in the direction `antsApplyTransforms -t` takes: for example the transform
+    `antsRegistration` writes with the b=0 as the fixed image and the reference as the moving one. The reference is resampled through it, and a copy is returned as
+    `reference_xfm` (written as `reference_xfm.txt`) to pass to `fit(reference_init_xfm=...)`.
+    Without it the reference is placed by its header alone.
     """
     import nibabel as nb
     import numpy as np
@@ -408,10 +481,21 @@ def prepare(
     else:
         corners = np.array(np.meshgrid(*[[0, n - 1] for n in epi_img.shape[:3]], indexing="ij")).reshape(3, -1).astype(float)
         world = epi_img.affine @ np.vstack([corners, np.ones(corners.shape[1])])
+    def placed(name, src):
+        """The input image, with the reference moved by `reference_xfm` (by its affine, no resampling)."""
+        img = nb.load(str(src))
+        if name == "reference" and reference_xfm is not None:
+            img = nb.Nifti1Image(np.asanyarray(img.dataobj), np.linalg.inv(read_itk_affine(reference_xfm)) @ img.affine, img.header)
+        return img
+
+    if reference_xfm is not None:
+        if reference is None:
+            raise ValueError("reference_xfm needs a reference")
+        paths["reference_xfm"] = write_itk_affine(out / "reference_xfm.txt", read_itk_affine(reference_xfm))
     for name, src in (("mask", mask), ("reference", reference), ("fieldmap", fieldmap), ("reverse_epi", reverse_epi)):
         if src is None or name == "mask":
             continue
-        img = nb.load(str(src))
+        img = placed(name, src)
         vox = np.linalg.inv(img.affine) @ world
         ok = np.all((vox[:3] >= -0.5) & (vox[:3] <= np.array(img.shape[:3])[:, None] - 0.5), axis=0)
         overlap = float(ok.mean())
@@ -423,7 +507,7 @@ def prepare(
     for name, src, interp in (("mask", mask, "nearest"), ("reference", reference, "continuous"), ("fieldmap", fieldmap, "continuous"), ("reverse_epi", reverse_epi, "continuous")):
         if src is None:
             continue
-        img = resample_to_img(nb.load(str(src)), target, interpolation=interp)
+        img = resample_to_img(placed(name, src), target, interpolation=interp)
         nb.save(img, str(out / f"{name}.nii.gz"))
         paths[name] = out / f"{name}.nii.gz"
     return paths

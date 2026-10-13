@@ -9,9 +9,9 @@ use unpile::ops::{from_vec, gaussian_smooth, pullback, splat, to_vec};
 use unpile::optimize::{optimize, OptimizeOptions};
 use unpile::problem::{Metric, Model, Problem};
 use unpile::score::score_field;
-use unpile::xfm::{pose_world_affine, rigid_error, write_itk_warp};
+use unpile::xfm::{pose_world_affine, write_itk_warp};
 #[cfg(feature = "itk")]
-use unpile::xfm::{read_itk_affine, write_itk_affine_txt};
+use unpile::xfm::{read_itk_affine, rigid_error, write_itk_affine_txt};
 
 #[derive(Parser)]
 #[command(
@@ -120,9 +120,17 @@ enum Cmd {
         /// true field (Hz, on the EPI grid) to score against: TRXScan truth or a reference method's field
         #[arg(long)]
         truth_field: Option<String>,
-        /// ITK affine (.txt/.mat/.h5) the reference pose is scored against (fixed EPI -> moving reference)
+        /// ITK affine (.txt/.mat/.h5) the reference pose (--pose) is scored against (fixed EPI -> moving reference)
         #[arg(long)]
         truth_xfm: Option<String>,
+        /// ITK affine (.txt/.mat/.h5) the fieldmap pose is scored against (fixed EPI -> moving fieldmap)
+        #[arg(long)]
+        truth_fieldmap_xfm: Option<String>,
+        /// ITK affine (.txt/.mat/.h5) already applied to the reference when it was put on the EPI grid
+        /// (unpile.prepare's reference_xfm): pose_composed_xfm.txt then maps the EPI grid to the
+        /// original reference, and --truth-xfm scores that composition
+        #[arg(long)]
+        reference_init_xfm: Option<String>,
     },
     /// Write a field (and optionally a pose) as ITK transforms, with the internally resampled images for comparison.
     Export {
@@ -396,9 +404,24 @@ fn main() -> Result<()> {
             window,
             truth_field,
             truth_xfm,
+            truth_fieldmap_xfm,
+            reference_init_xfm,
             acq_voxel_mm,
         } => {
             std::fs::create_dir_all(&out)?;
+            // read the initial reference transform first, so a bad file fails before the fit
+            if reference_init_xfm.is_some() && reference.is_none() {
+                anyhow::bail!("--reference-init-xfm needs --reference");
+            }
+            #[cfg(feature = "itk")]
+            let init_xfm = reference_init_xfm
+                .as_ref()
+                .map(read_itk_affine)
+                .transpose()?;
+            #[cfg(not(feature = "itk"))]
+            if reference_init_xfm.is_some() {
+                anyhow::bail!("--reference-init-xfm needs the itk feature");
+            }
             let (pe_axis, sign) = parse_pe_dir(&pe_dir)?;
             let ob = read3(&obs, None)?;
             let codes = unpile::xfm::axcodes(&ob.header);
@@ -462,11 +485,12 @@ fn main() -> Result<()> {
             let head = Array3::from_shape_vec(ob.data.dim(), head)?;
             let outside = dilate(&head, 3).map(|&m| if m { 0.0f32 } else { 1.0 });
             let dil = dilate(&brain, 4).map(|&m| if m { 1.0f32 } else { 0.0 });
+            let ref_norm = median_in(&rf, &brain);
             let mut pr = Problem {
                 obs: t(&(&ob.data / norm)),
                 sign,
                 trt,
-                reference: t(&(&rf / median_in(&rf, &brain))),
+                reference: t(&(&rf / ref_norm)),
                 mask_obs: Some(t(&dil)),
                 outside: Some(t(&outside)),
                 outside_weight: 1.0,
@@ -612,6 +636,18 @@ fn main() -> Result<()> {
             let unw_np = from_pe_last(&Array3::from_shape_vec((a, b, c), to_vec(&unw))?, pe_axis)
                 .map(|&v| v * norm);
             write3(format!("{out}/corrected.nii.gz"), &unw_np, &ob.header)?;
+            if let Some(p) = pr.pose.as_ref() {
+                // the reference as the fit placed it: on the EPI grid, aligned with corrected.nii.gz
+                let posed = pr.posed_ref(Some(p));
+                let posed_np =
+                    from_pe_last(&Array3::from_shape_vec((a, b, c), to_vec(&posed))?, pe_axis)
+                        .map(|&v| v * ref_norm);
+                write3(
+                    format!("{out}/reference_posed.nii.gz"),
+                    &posed_np,
+                    &ob.header,
+                )?;
+            }
             if pepolar {
                 let unw2 = pr.unwarp(pr.obs2.clone().unwrap(), &f, -sign, 25, 0.05);
                 write3(
@@ -629,19 +665,40 @@ fn main() -> Result<()> {
                 }
             }
             // the reference pose (fixed EPI -> moving reference) and the GRE prior's pose (fixed EPI -> moving fieldmap)
-            for (name, p) in [
-                ("pose", pr.pose.as_ref()),
-                ("gre_pose", pr.gre_pose.as_ref()),
+            // each pose is scored against its own truth: the reference's and the fieldmap's transforms differ
+            for (name, p, truth_path) in [
+                ("pose", pr.pose.as_ref(), truth_xfm.as_ref()),
+                (
+                    "gre_pose",
+                    pr.gre_pose.as_ref(),
+                    truth_fieldmap_xfm.as_ref(),
+                ),
             ] {
                 let Some(p) = p else { continue };
                 let pv = p.to_data().try_to_vec::<f32>().unwrap();
                 let pa: [f32; 6] = pv[..6].try_into()?;
                 let w = pose_world_affine(&pa, [a, b, c], sp, pe_axis, &ob.header)?;
                 report[format!("{name}_world_affine_ras")] = json!(w);
+                #[cfg(not(feature = "itk"))]
+                let _ = truth_path;
                 #[cfg(feature = "itk")]
                 {
                     write_itk_affine_txt(format!("{out}/{name}_xfm.txt"), &w)?;
-                    if let Some(tx) = &truth_xfm {
+                    // the reference pose is relative to the reference as given; after an initial
+                    // transform, the map to the original reference is init o pose
+                    let w = match (name, &init_xfm) {
+                        ("pose", Some(init)) => {
+                            let composed = unpile::xfm::matmul(init, &w);
+                            write_itk_affine_txt(
+                                format!("{out}/pose_composed_xfm.txt"),
+                                &composed,
+                            )?;
+                            report["pose_composed_world_affine_ras"] = json!(composed);
+                            composed
+                        }
+                        _ => w,
+                    };
+                    if let Some(tx) = truth_path {
                         let truth = read_itk_affine(tx)?;
                         let (ang, shift) = rigid_error(&w, &truth, [0.0; 3])?;
                         let (ang0, shift0) = rigid_error(
@@ -658,6 +715,11 @@ fn main() -> Result<()> {
                         report[format!("{name}_vs_truth")] = json!({"rotation_deg": ang, "translation_mm": shift, "identity_rotation_deg": ang0, "identity_translation_mm": shift0});
                     }
                 }
+            }
+            // no pose fitted: the reference was used as the initial transform placed it
+            #[cfg(feature = "itk")]
+            if let (Some(init), None) = (&init_xfm, pr.pose.as_ref()) {
+                write_itk_affine_txt(format!("{out}/pose_composed_xfm.txt"), init)?;
             }
             if let Some(tf) = truth_field {
                 let ftv = read3(&tf, None)?;

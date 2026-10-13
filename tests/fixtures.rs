@@ -115,7 +115,7 @@ fn phasediff_gre_refinement() {
             dir.join("gre_hz.nii.gz").to_str().unwrap(),
             "--fieldmap-refine",
             "pose,shim,delta",
-            "--truth-xfm",
+            "--truth-fieldmap-xfm",
             truth_xfm.to_str().unwrap(),
         ],
     );
@@ -156,6 +156,45 @@ fn phasediff_gre_refinement() {
         s["gre_pose_vs_truth"]["translation_mm"].as_f64().unwrap(),
         0.0,
         1.5,
+    );
+    // the default terms: with the residual frozen, pose and shim alone must still place the fieldmap
+    // (a frozen residual once made the problem so stiff that the pose never moved: 5.4 deg left)
+    let s = fit(
+        &dir,
+        "gre_pose_shim",
+        &[
+            "--reference",
+            dir.join("clean_b0.nii.gz").to_str().unwrap(),
+            "--lam-mm",
+            "5",
+            "--fieldmap",
+            dir.join("gre_hz.nii.gz").to_str().unwrap(),
+            "--fieldmap-refine",
+            "pose,shim",
+            "--truth-fieldmap-xfm",
+            truth_xfm.to_str().unwrap(),
+        ],
+    );
+    expect(
+        &mut fails,
+        "phasediff GRE prior, pose + shim: field corr",
+        s["field"]["corr"].as_f64().unwrap(),
+        0.99,
+        1.0,
+    );
+    expect(
+        &mut fails,
+        "phasediff GRE prior, pose + shim: pose residual rotation deg",
+        s["gre_pose_vs_truth"]["rotation_deg"].as_f64().unwrap(),
+        0.0,
+        1.5,
+    );
+    expect(
+        &mut fails,
+        "phasediff GRE prior, pose + shim: pose residual translation mm",
+        s["gre_pose_vs_truth"]["translation_mm"].as_f64().unwrap(),
+        0.0,
+        1.0,
     );
     finish(fails);
 }
@@ -213,6 +252,14 @@ fn phasediff_t2w_fieldmapless() {
         0.0,
         3.0,
     );
+    let posed = dir.join("out").join("t2w").join("reference_posed.nii.gz");
+    expect(
+        &mut fails,
+        "phasediff T2w: reference_posed.nii.gz written (1 = yes)",
+        if posed.exists() { 1.0 } else { 0.0 },
+        1.0,
+        1.0,
+    );
     expect(
         &mut fails,
         "phasediff T2w: field corr (loose: a refiner, not a fieldmap)",
@@ -223,22 +270,15 @@ fn phasediff_t2w_fieldmapless() {
     finish(fails);
 }
 
-/// Fieldmap refinement with the T2w as the reference and a joint pose: both pose sets at once.
-#[test]
-fn phasediff_fieldmap_with_t2w_pose() {
-    let Some(dir) = fixture("phasediff") else {
-        return;
-    };
+/// Fieldmap refinement with the T2w as the reference and a joint pose: both pose sets at once, each
+/// scored against its own recorded transform.
+fn fieldmap_with_t2w_pose(terms: &str, out: &str) -> (Value, Vec<String>) {
+    let dir = fixture("phasediff").expect("checked by the caller");
     let meta = json(&dir.join("meta.json"));
-    let truth_xfm = dir.join(
-        meta["truth_xfm"]["fmap"]
-            .as_str()
-            .expect("fmap truth transform"),
-    );
-    let mut fails = Vec::new();
+    let truth = |k: &str| dir.join(meta["truth_xfm"][k].as_str().expect("truth transform"));
     let s = fit(
         &dir,
-        "gre_t2w",
+        out,
         &[
             "--reference",
             dir.join("T2w.nii.gz").to_str().unwrap(),
@@ -252,24 +292,108 @@ fn phasediff_fieldmap_with_t2w_pose() {
             "--fieldmap",
             dir.join("gre_hz.nii.gz").to_str().unwrap(),
             "--fieldmap-refine",
-            "pose,shim,delta",
+            terms,
             "--truth-xfm",
-            truth_xfm.to_str().unwrap(),
+            truth("T2w").to_str().unwrap(),
+            "--truth-fieldmap-xfm",
+            truth("fmap").to_str().unwrap(),
         ],
+    );
+    let mut fails = Vec::new();
+    let what = |q: &str| format!("phasediff fieldmap ({terms}) + T2w pose: {q}");
+    expect(
+        &mut fails,
+        &what("T2w pose residual rotation deg"),
+        s["pose_vs_truth"]["rotation_deg"].as_f64().unwrap(),
+        0.0,
+        2.0,
     );
     expect(
         &mut fails,
-        "phasediff fieldmap + T2w pose: field corr",
+        &what("T2w pose residual translation mm"),
+        s["pose_vs_truth"]["translation_mm"].as_f64().unwrap(),
+        0.0,
+        2.0,
+    );
+    expect(
+        &mut fails,
+        &what("fieldmap pose residual rotation deg"),
+        s["gre_pose_vs_truth"]["rotation_deg"].as_f64().unwrap(),
+        0.0,
+        3.0,
+    );
+    expect(
+        &mut fails,
+        &what("fieldmap pose residual translation mm"),
+        s["gre_pose_vs_truth"]["translation_mm"].as_f64().unwrap(),
+        0.0,
+        3.0,
+    );
+    // the measured fieldmap fixes the field's mean; the pinning that separates a field offset from a
+    // PE translation must not cancel it
+    let mean_err = (s["field"]["mean_est_mm"].as_f64().unwrap()
+        - s["field"]["mean_truth_mm"].as_f64().unwrap())
+    .abs();
+    expect(
+        &mut fails,
+        &what("mean displacement error mm"),
+        mean_err,
+        0.0,
+        0.5,
+    );
+    (s, fails)
+}
+
+/// The default terms under the T2w metric: both poses recovered, the field close to the truth.
+#[test]
+fn phasediff_fieldmap_pose_shim_with_t2w_pose() {
+    if fixture("phasediff").is_none() {
+        return;
+    }
+    let (s, mut fails) = fieldmap_with_t2w_pose("pose,shim", "gre_t2w_pose_shim");
+    expect(
+        &mut fails,
+        "phasediff fieldmap (pose,shim) + T2w pose: field corr",
+        s["field"]["corr"].as_f64().unwrap(),
+        0.9,
+        1.0,
+    );
+    finish(fails);
+}
+
+/// Pose alone under the T2w metric: the fixture's fieldmap differs from the truth only by its position,
+/// and without a shim to drift under the cross-contrast metric the field comes out close to the truth.
+#[test]
+fn phasediff_fieldmap_pose_with_t2w_pose() {
+    if fixture("phasediff").is_none() {
+        return;
+    }
+    let (s, mut fails) = fieldmap_with_t2w_pose("pose", "gre_t2w_pose");
+    expect(
+        &mut fails,
+        "phasediff fieldmap (pose) + T2w pose: field corr",
+        s["field"]["corr"].as_f64().unwrap(),
+        0.99,
+        1.0,
+    );
+    finish(fails);
+}
+
+/// With the residual on as well: the T2w metric pulls the residual away from the truth (the docs
+/// advise against it), but both poses must still be recovered.
+#[test]
+fn phasediff_fieldmap_with_t2w_pose() {
+    if fixture("phasediff").is_none() {
+        return;
+    }
+    let (s, mut fails) = fieldmap_with_t2w_pose("pose,shim,delta", "gre_t2w");
+    expect(
+        &mut fails,
+        "phasediff fieldmap (pose,shim,delta) + T2w pose: field corr",
         s["field"]["corr"].as_f64().unwrap(),
         0.5,
         1.0,
     );
-    // the T2w metric only partly locates the fieldmap: guard the combination against crashing and
-    // against leaving the fieldmap worse than it came
-    let id = s["gre_pose_vs_truth"]["identity_rotation_deg"]
-        .as_f64()
-        .unwrap();
-    expect(&mut fails, "phasediff fieldmap + T2w pose: fieldmap pose residual rotation deg (not worse than as acquired)", s["gre_pose_vs_truth"]["rotation_deg"].as_f64().unwrap(), 0.0, id + 1.0);
     finish(fails);
 }
 

@@ -25,6 +25,32 @@ T1w
 : not recommended as the direct reference. Its contrast is close to the inverse of the EPI's and
   the fit fails on real data. Use it through SynB0.
 
+## Aligning the reference
+
+`unpile fit` takes the reference on the EPI grid. `unpile.prepare` puts it there through the image
+headers, so without anything else the reference is assumed to be in register with the EPI in world
+coordinates. With `--pose` a rigid transform of the reference is fitted together with the field,
+against the distorted EPI. It starts from no movement, and on simulated data it recovered a 7° / 5 mm
+misplacement; for anything larger, apply an initial transform first:
+
+```python
+prep = unpile.prepare(epi, "prep", mask=mask, reference=t2w, reference_xfm="epi_to_t2w.mat")
+fit = unpile.fit(prep["epi"], prep["mask"], "out", reference=prep["reference"], metric="lncc",
+                 pose=True, reference_init_xfm=prep["reference_xfm"], sidecar=sidecar)
+```
+
+`reference_xfm` is an ITK rigid or affine transform (`.txt`, or ANTs' binary `.mat`) from the EPI to
+the reference, in the direction `antsApplyTransforms -t` takes: for example the transform
+`antsRegistration` writes with the b=0 as the fixed image and the reference as the moving one. The
+run then writes
+`pose_composed_xfm.txt`, from the EPI grid to the original reference, and `reference_posed.nii.gz`,
+the reference as the fit placed it (see {doc}`inputs-outputs`). Keep both transforms for
+bookkeeping; to resample the original reference once, use the composed one:
+
+```bash
+antsApplyTransforms -d 3 -i t2w.nii.gz -r corrected.nii.gz -t out/pose_composed_xfm.txt -o t2w_on_epi.nii.gz
+```
+
 ## Fit on a finer grid
 
 The anatomical image has smaller voxels than the EPI. Resampling it down to the EPI grid throws
