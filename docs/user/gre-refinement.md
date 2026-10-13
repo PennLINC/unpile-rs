@@ -42,8 +42,8 @@ produces this from a phase-difference or two-phase acquisition.
 
 `--fieldmap-refine` chooses the terms. The default is `pose,shim`. Add `delta` only with a
 same-contrast reference (SynB0 or, on simulated data, the clean b=0): under the T2w metric the
-residual term pulls a good fieldmap away from the truth. With `delta` on and a same-contrast
-reference, the position is recovered too; without it, the position barely moves on real data.
+residual term pulls a good fieldmap away from the truth. Pose and shim alone recover the position
+of a misplaced fieldmap, with either kind of reference (below).
 
 ## How refinement works, on one line
 
@@ -129,24 +129,34 @@ displacement error inside the brain, with the shift found in parentheses.
 ## What to expect
 
 On the simulated `phasediff` dataset TRXScan records the movement it applied to the fieldmap, so
-both the position and the field can be scored. With the clean b=0 as the reference and all three
-terms:
+both the position and the field can be scored. With the clean b=0 as the reference, scored inside
+the brain (levels 24/12/6 mm, 20 iterations, as in the integration tests):
 
-| quantity | fieldmap as acquired | after refinement |
-|---|---|---|
-| position error vs the recorded movement | 5.4° / 4.0 mm | 0.8° / 0.6 mm |
-| field correlation vs truth | 0.95 | 0.998 |
-| field rms error | | 0.24 mm |
+| quantity | fieldmap as acquired | pose, shim | pose, shim, delta |
+|---|---|---|---|
+| position error vs the recorded movement | 5.4° / 4.0 mm | 0.1° / 0.3 mm | 0.9° / 0.7 mm |
+| field correlation vs truth | 0.971 | 0.998 | 0.997 |
+| field rms error | 0.99 mm | 0.27 mm | 0.33 mm |
+
+With the T2w as the reference and its own position fitted (`--metric lncc --pose`), pose and shim
+place the fieldmap to 1.0° / 1.7 mm and the T2w to 0.4° / 0.7 mm. The field reaches 0.960
+correlation and 1.17 mm rms error, slightly worse than the fieldmap as acquired: under the T2w
+metric the shim terms cost a little accuracy. Adding `delta` under the T2w metric lowers the
+correlation to 0.61.
 
 ```{figure} ../_static/gre_refinement.png
 :alt: The fieldmap as acquired, after refinement, the truth, and the difference.
 
-The same run.
+The fieldmap as acquired, after refinement with all three terms, the truth, and the difference
+(an earlier run of the same fixture).
 ```
 
 On real data there is no truth, but there is an independent field: FSL topup's from an AP/PA pair
 of the same session. On a 1.7 mm diffusion scan with a 92 ms readout and a same-shim GRE fieldmap
-(the HBCD protocol), scored against that field inside the brain:
+(the HBCD protocol), scored against that field inside the brain. These values were recorded with
+version 0.1.0, in which pose and shim barely moved unless `delta` was also refined, and the
+in-brain mean of the field was pinned towards zero even with a fieldmap. The rows that refine pose
+and shim without `delta` are affected and will be re-run:
 
 | fieldmap | reference | terms | correlation / slope / rms vs topup |
 |---|---|---|---|
@@ -156,11 +166,10 @@ of the same session. On a 1.7 mm diffusion scan with a 92 ms readout and a same-
 | displaced by 5° / 4 mm | T2w | pose, shim | 0.887 / 0.99 / 2.25 mm (position moved 0.4°) |
 | displaced by 5° / 4 mm | topup-corrected b=0 | pose, shim, delta | 0.974 / 1.00 / 1.03 mm (position recovered: 5.1°) |
 
-Two things follow. A fieldmap that was registered properly is already close to the best field
-available, and refinement adds little. A fieldmap that is out of place is recovered only with a
-same-contrast reference and the residual term; the T2w metric does not see where the fieldmap
-belongs. In qsiprep that reference is the SynB0 image. The topup-corrected b=0 stands in for it in
-the last row because no SynB0 exists for this subject yet.
+A fieldmap that was registered properly is already close to the best field available. A fieldmap
+that is out of place was recovered with a same-contrast reference and all three terms (last row).
+In qsiprep that reference is the SynB0 image; the topup-corrected b=0 stands in for it here because
+no SynB0 exists for this subject yet.
 
 ```{figure} ../_static/csdsi2_panels.png
 :alt: The 1.7 mm b=0 as acquired, corrected without a fieldmap, corrected with the displaced-then-refined fieldmap, and the T2w; below, the four fields.

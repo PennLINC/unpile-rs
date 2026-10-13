@@ -76,8 +76,8 @@ positive phase-encoding axis for `j` and away from it for `j-`. This is the conv
   conversion.
 
 `score.json`
-: the settings of the run and, with `--truth-field` and `--truth-xfm`, the scores against a known
-  field and transform.
+: the settings of the run and, with `--truth-field`, `--truth-xfm` (the reference's pose) and
+  `--truth-fieldmap-xfm` (the fieldmap's pose), the scores against a known field and transforms.
 
 ## Applying the correction
 

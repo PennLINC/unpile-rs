@@ -89,7 +89,7 @@ as qsiprep does with `.circleci/trxscan_fixtures.txt`.
 
 | fixture | recipe | what is asserted |
 |---|---|---|
-| `phasediff` | qsiprep's phasediff recipe: GRE acquired after a recorded 5 degree / 4 mm movement | GRE prior with pose + shim + residual refinement: field vs truth; recovered fieldmap pose vs `from-fmap_to-dwi` truth via `--truth-xfm` (reference run: 0.68 degree / 0.85 mm residual from 5.4 / 4.0) |
+| `phasediff` | qsiprep's phasediff recipe: GRE acquired after a recorded 5 degree / 4 mm movement | GRE prior with pose + shim + residual refinement: field vs truth; recovered fieldmap pose vs `from-fmap_to-dwi` truth via `--truth-fieldmap-xfm`, with all three terms and with the default pose + shim; the T2w as reference with both poses scored, each against its own truth |
 | `fieldmapless` | AP only, T1w/T2w, no fieldmap | clean-b0 ceiling (SSD) and the T2w LNCC fit with joint pose: field vs truth, pose vs `from-T2w_to-dwi` truth |
 | `oblique` | fieldmapless with `acq_rotation` | the same on a rotated header: PE-axis and affine handling, and the exported warp read back (vector = step x field) |
 | `rpe` | AP + PA | two-blip fit vs truth and the operator check against the stored torch dumps |
