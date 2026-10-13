@@ -180,6 +180,51 @@ def fig_setup(d, out):
     save(fig, out, "line_setup.svg")
 
 
+TOY_DISP = (0.0, -0.5, -1.0, -1.0, -0.5, 0.0)  # voxels; a worked example small enough to check by hand
+
+
+def fig_toy(out):
+    """Six voxels of equal signal, displaced so the left half is compressed and the right half stretched."""
+    disp = torch.tensor(TOY_DISP)
+    ref = torch.ones(len(disp))
+    a, b = lm.moved_cells(disp)
+    W = lm.splat_weights(disp, membership="sharp")
+    pred = ref @ W
+    n = len(ref)
+    colors = plt.cm.tab10(np.arange(n))
+    fig, axes = plt.subplots(3, 1, figsize=(7.5, 6.6), sharex=True, gridspec_kw=dict(hspace=0.55))
+    for i in range(n):
+        axes[0].add_patch(Rectangle((i - 0.5, 0), 1, ref[i].item(), color=colors[i], ec="white", lw=1))
+        axes[0].text(i, -0.42, f"{TOY_DISP[i]:+.1f}", ha="center", va="center", fontsize=8)
+        width = (b[i] - a[i]).item()
+        axes[1].add_patch(Rectangle((a[i].item(), 0), width, ref[i].item() / width, color=colors[i], ec="white", lw=1))
+        axes[1].text(a[i].item() + width / 2, ref[i].item() / width + 0.08, f"width {width:.2f}", ha="center", fontsize=7)
+    axes[0].text(-0.62, -0.42, "d (voxels)", ha="right", va="center", fontsize=8)
+    for j in range(n):
+        bottom = 0.0
+        for i in range(n):
+            share = (ref[i] * W[i, j]).item()
+            if share > 1e-6:
+                axes[2].add_patch(Rectangle((j - 0.4, bottom), 0.8, share, color=colors[i], ec="white", lw=1))
+                bottom += share
+        axes[2].text(j, bottom + 0.08, f"{pred[j]:.2f}", ha="center", fontsize=8)
+    titles = ["A  reference: six voxels of signal 1, with the displacement of each voxel",
+              "B  cell edges displaced; each cell keeps area 1",
+              f"C  prediction: area in each voxel (total {pred.sum():.1f})"]
+    for ax, t in zip(axes, titles):
+        ax.set_ylim(-0.6 if ax is axes[0] else 0, 2.4)
+        ax.set_title(t)
+        ax.set_yticks([0, 1, 2])
+        for j in range(n + 1):
+            ax.axvline(j - 0.5, color="0.8", lw=0.6, zorder=-1)
+    axes[0].spines["bottom"].set_position(("data", 0))
+    axes[2].set_xlim(-0.9, n - 0.5)
+    axes[2].set_xticks(range(n))
+    axes[2].set_xlabel("voxel index")
+    save(fig, out, "line_toy.svg")
+    return W, pred
+
+
 def fig_cells(d, out):
     """Each voxel of the reference as a cell, moved by the true displacement, then binned."""
     s0, s1 = SEG
@@ -452,6 +497,8 @@ def main():
     d = load_line(args.testdata)
     snaps = fit(d)
     fig_setup(d, args.out)
+    W_toy, pred_toy = fig_toy(args.out)
+    print("worked example: W =\n", W_toy.numpy().round(2), "\nprediction", pred_toy.numpy().round(2))
     contrib = fig_cells(d, args.out)
     pp = fig_push_pull(d, args.out)
     fig_gradient(d, args.out)

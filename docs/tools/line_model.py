@@ -24,6 +24,8 @@ def ramp(x, membership="tent", sigma=0.5):
     With a sharp boundary this is max(x, 0). The blur makes it smooth, so the overlap of a moved
     cell with a voxel changes smoothly as the cell moves, and has a gradient.
     """
+    if membership == "sharp":  # exact overlap with unblurred voxels: for worked examples only
+        return x.clamp_min(0)
     if membership == "tent":
         h = 0.5
         u = x.clamp(-h, h) + h

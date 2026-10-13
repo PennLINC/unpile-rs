@@ -67,6 +67,43 @@ so adjacent cells remain contiguous. Each cell keeps its area: a cell compressed
 its width becomes three times as tall. The predicted value of an output voxel is the total area of
 all cells that falls within it.
 
+### A worked example
+
+Six voxels, each with signal 1, are displaced by $d = (0, -0.5, -1, -1, -0.5, 0)$ voxels. An edge
+moves by the mean displacement of the two voxels it separates. The edge between voxels 1 and 2, at
+1.5, moves by −0.75 to 0.75; the edge between voxels 3 and 4, at 3.5, moves by −0.75 to 2.75. The
+first three cells are compressed to widths 0.75, 0.5 and 0.75, and the last three are stretched to
+1.25, 1.5 and 1.25. Each cell keeps area 1, so its height is the reciprocal of its width.
+
+```{figure} ../_static/line_toy.svg
+:alt: Six unit cells, the same cells after displacement with their new widths, and the area collected by each output voxel.
+
+(A) Six voxels of signal 1 and the displacement of each. (B) The cells after their edges are
+displaced; each keeps area 1. (C) The prediction: the area that falls in each voxel, coloured by
+the cell it came from. The predicted values sum to 6, the total of the input.
+```
+
+Output voxel 1 spans [0.5, 1.5]. It receives all of cell 2, which now spans [0.75, 1.5], and the
+half of cell 1 that lies above 0.5, for a total of 1.5. Output voxel 3 spans [2.5, 3.5]. It
+receives one fifth of cell 3 and one half of cell 4, for a total of 0.7. The shares form the matrix
+$W$, with one row per cell of the reference and one column per output voxel:
+
+| cell | voxel 0 | voxel 1 | voxel 2 | voxel 3 | voxel 4 | voxel 5 |
+|---|---|---|---|---|---|---|
+| 0 | 1 | | | | | |
+| 1 | 0.5 | 0.5 | | | | |
+| 2 | | 1 | | | | |
+| 3 | | | 0.8 | 0.2 | | |
+| 4 | | | | 0.5 | 0.5 | |
+| 5 | | | | | 0.2 | 0.8 |
+
+Every row sums to one, which is why the total signal is conserved. The column sums are the
+predicted intensities: 1.5 where the line is compressed and 0.7 to 0.8 where it is stretched. This
+example uses sharp voxel boundaries so that the shares can be checked by hand; unpile smooths the
+boundaries, as described below.
+
+### The line from the data
+
 ```{figure} ../_static/line_cells.svg
 :alt: Coloured cells for each reference voxel, the same cells after their edges are displaced, and the contributions collected by each output voxel.
 
@@ -78,8 +115,9 @@ peak at voxel 44 receives most of its signal from reference voxels 46 to 49.
 ```
 
 Because the operation redistributes area rather than interpolating values, it conserves the total
-signal on the line. We refer to it as the forward model or push-forward; in the code it is called
-`splat`, a term from computer graphics for distributing a value over a grid. In matrix form, the
+signal on the line. unpile calls this operation a *splat* (`splat` in `src/ops.rs`), a term from
+computer graphics for distributing each sample's value over the grid cells it covers; in image
+registration the same idea is called a push-forward or forward warping. In matrix form, the
 share of cell $i$ that falls in output voxel $j$ is the entry $W_{ij}$, and the prediction
 is $\text{pred}_j = \sum_i W_{ij}\,\text{ref}_i$:
 
