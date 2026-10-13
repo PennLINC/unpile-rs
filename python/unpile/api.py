@@ -76,6 +76,7 @@ def fit(
     iters: int | None = None,
     truth_field: PathLike | None = None,
     truth_xfm: PathLike | None = None,
+    truth_fieldmap_xfm: PathLike | None = None,
     device: str = "flex",
     threads: int | None = None,
     extra: Sequence[str] = (),
@@ -97,7 +98,7 @@ def fit(
         pass
     out = Path(out_dir)
     args: list[str] = ["fit", "--epi", str(epi), "--mask", str(mask), "--out", str(out), "--pe-dir", pe_dir, "--total-readout-time", repr(float(total_readout_time))]
-    for flag, value in (("--reference", reference), ("--reverse-epi", reverse_epi), ("--fieldmap", fieldmap), ("--fieldmap-refine", fieldmap_refine), ("--metric", metric), ("--truth-field", truth_field), ("--truth-xfm", truth_xfm)):
+    for flag, value in (("--reference", reference), ("--reverse-epi", reverse_epi), ("--fieldmap", fieldmap), ("--fieldmap-refine", fieldmap_refine), ("--metric", metric), ("--truth-field", truth_field), ("--truth-xfm", truth_xfm), ("--truth-fieldmap-xfm", truth_fieldmap_xfm)):
         if value is not None:
             args += [flag, str(value)]
     if pose:

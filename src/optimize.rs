@@ -55,11 +55,10 @@ pub fn optimize(
     let has_gre = problem.gre.is_some();
     // GRE prior parameters live after the pose in the flat vector: 6 pose + 9 shim
     let mut gre_vec: Vec<f32> = if has_gre { vec![0.0; 15] } else { vec![] };
-    let lam = if has_gre && !opt.gre_refine_delta {
-        1e6
-    } else {
-        opt.lam
-    };
+    // a residual that is not refined stays at zero: its gradient is dropped below. Freezing it with
+    // a huge penalty instead made the problem so stiff that the line search barely moved pose or shim.
+    let freeze_delta = has_gre && !opt.gre_refine_delta;
+    let lam = opt.lam;
     let nlev = opt.levels_mm.len();
     for (lev, &h_mm) in opt.levels_mm.iter().enumerate() {
         let t0 = std::time::Instant::now();
@@ -158,8 +157,13 @@ pub fn optimize(
                     loss = loss + (o.clone() * fo.clone() * fo).sum() / o.clone().sum() * ow;
                 }
                 if let (Some(m), true) = (&dc_mask, opt.pose) {
-                    // pin the in-brain mean of the field: confounded with the PE translation of the pose
-                    let mean = (f * m.clone()).sum() / m.clone().sum() / SCALE;
+                    // pin the in-brain mean of the field: confounded with the PE translation of the pose.
+                    // A measured fieldmap fixes that mean, so only the change to it is pinned.
+                    let pinned = match problem.prior_field(gp.as_ref(), None) {
+                        Some(posed) => f - posed,
+                        None => f,
+                    };
+                    let mean = (pinned * m.clone()).sum() / m.clone().sum() / SCALE;
                     loss = loss + mean.clone() * mean * 10.0;
                 }
                 let dv = data.into_scalar::<f32>();
@@ -176,6 +180,9 @@ pub fn optimize(
                     .to_data()
                     .try_to_vec::<f32>()
                     .unwrap();
+                if freeze_delta {
+                    g.iter_mut().for_each(|v| *v = 0.0);
+                }
                 if let Some(p) = &pt {
                     let gpv = p
                         .grad(&grads)

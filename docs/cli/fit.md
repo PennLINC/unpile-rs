@@ -59,7 +59,9 @@ Options:
       --truth-field <TRUTH_FIELD>
           true field (Hz, on the EPI grid) to score against: TRXScan truth or a reference method's field
       --truth-xfm <TRUTH_XFM>
-          ITK affine (.txt/.mat/.h5) the reference pose is scored against (fixed EPI -> moving reference)
+          ITK affine (.txt/.mat/.h5) the reference pose (--pose) is scored against (fixed EPI -> moving reference)
+      --truth-fieldmap-xfm <TRUTH_FIELDMAP_XFM>
+          ITK affine (.txt/.mat/.h5) the fieldmap pose is scored against (fixed EPI -> moving fieldmap)
   -h, --help
           Print help
 ```

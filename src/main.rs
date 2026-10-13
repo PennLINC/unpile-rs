@@ -120,9 +120,12 @@ enum Cmd {
         /// true field (Hz, on the EPI grid) to score against: TRXScan truth or a reference method's field
         #[arg(long)]
         truth_field: Option<String>,
-        /// ITK affine (.txt/.mat/.h5) the reference pose is scored against (fixed EPI -> moving reference)
+        /// ITK affine (.txt/.mat/.h5) the reference pose (--pose) is scored against (fixed EPI -> moving reference)
         #[arg(long)]
         truth_xfm: Option<String>,
+        /// ITK affine (.txt/.mat/.h5) the fieldmap pose is scored against (fixed EPI -> moving fieldmap)
+        #[arg(long)]
+        truth_fieldmap_xfm: Option<String>,
     },
     /// Write a field (and optionally a pose) as ITK transforms, with the internally resampled images for comparison.
     Export {
@@ -396,6 +399,7 @@ fn main() -> Result<()> {
             window,
             truth_field,
             truth_xfm,
+            truth_fieldmap_xfm,
             acq_voxel_mm,
         } => {
             std::fs::create_dir_all(&out)?;
@@ -629,9 +633,14 @@ fn main() -> Result<()> {
                 }
             }
             // the reference pose (fixed EPI -> moving reference) and the GRE prior's pose (fixed EPI -> moving fieldmap)
-            for (name, p) in [
-                ("pose", pr.pose.as_ref()),
-                ("gre_pose", pr.gre_pose.as_ref()),
+            // each pose is scored against its own truth: the reference's and the fieldmap's transforms differ
+            for (name, p, truth_path) in [
+                ("pose", pr.pose.as_ref(), truth_xfm.as_ref()),
+                (
+                    "gre_pose",
+                    pr.gre_pose.as_ref(),
+                    truth_fieldmap_xfm.as_ref(),
+                ),
             ] {
                 let Some(p) = p else { continue };
                 let pv = p.to_data().try_to_vec::<f32>().unwrap();
@@ -641,7 +650,7 @@ fn main() -> Result<()> {
                 #[cfg(feature = "itk")]
                 {
                     write_itk_affine_txt(format!("{out}/{name}_xfm.txt"), &w)?;
-                    if let Some(tx) = &truth_xfm {
+                    if let Some(tx) = truth_path {
                         let truth = read_itk_affine(tx)?;
                         let (ang, shift) = rigid_error(&w, &truth, [0.0; 3])?;
                         let (ang0, shift0) = rigid_error(
