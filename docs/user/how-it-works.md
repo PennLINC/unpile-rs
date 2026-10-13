@@ -1,60 +1,86 @@
-# How the fit works, on one line
+# Estimation on a single line
 
-unpile estimates the field by predicting the acquired EPI from an undistorted image and changing
-the field until the prediction matches. This page follows that fit on a single line of voxels along
-the phase-encoding axis, from a zero field to the answer. Every figure was made with the short
-PyTorch versions of unpile's operators in `docs/tools/line_model.py`. Before drawing, the figure
-script checks those against the PyTorch prototype's stored outputs, the same files `unpile check`
-holds the Rust code to. On every line of that volume they agree to 4e-6.
+unpile estimates the susceptibility field by forward modelling. Given an undistorted image and a
+candidate field, it predicts the distorted EPI, compares the prediction with the acquired image,
+and adjusts the field until the two agree. This page follows that procedure on one line of voxels
+along the phase-encoding axis, from a zero field to the final estimate.
 
-The data are the simulated test set in `testdata/rpe`: a 3 mm b=0 with phase encoding along the
-anterior-posterior axis, a total readout time of 55.7 ms, the clean undistorted b=0 it was made
-from, and the true field. The line runs from back to front through the middle of the brain, at the
-level of the frontal hot spot where the field reaches 102 Hz.
+In unpile the computation runs on the whole volume at once: every line along the phase-encoding
+axis is predicted with the same three-dimensional field, and a single objective summed over the
+brain is minimised. Restricting it to one line here keeps every quantity small enough to plot. How
+the line-wise computation extends to the volume is described at the end of the page.
 
-## The line
+The figures were produced with PyTorch implementations of unpile's one-dimensional operators
+(`docs/tools/line_model.py`). These are checked against the outputs of the original PyTorch
+prototype stored in `testdata/rpe`, which are also the reference for the Rust implementation
+(`unpile check`). Over all lines of that volume the largest absolute difference is 4 × 10⁻⁶ of
+the median brain signal.
 
-```{figure} ../_static/line_setup.png
+## Data and conventions
+
+The simulated data set in `testdata/rpe` contains a b=0 image with 3 mm isotropic voxels and
+anterior–posterior phase encoding (total readout time 55.7 ms), the undistorted image from which it
+was simulated, and the true field. The line runs from posterior to anterior through the midline of
+an inferior slice that crosses the frontal susceptibility artefact. Along this line the field
+reaches 102 Hz.
+
+Intensities are scaled so that the median signal inside the brain is 1, and intensity errors are
+reported as percentages of that median. Positions are voxel indices along the line, increasing
+from posterior to anterior. Positive displacements point anteriorly.
+
+## The distortion along the line
+
+```{figure} ../_static/line_setup.svg
 :alt: The undistorted and acquired b=0 with the line marked, the signal along the line in both, and the true displacement along it.
 
-Left: the undistorted reference and the acquired b=0, with the line marked. Right, top: the signal
-along the line (grey: inside the brain). Right, bottom: the true displacement, with the compressed
-(red) and stretched (blue) stretches shaded.
+(A, B) The undistorted reference and the acquired b=0 in the slice containing the line (vertical
+line). (C) Signal along the line; the grey band marks the brain. (D) True displacement along the
+line. Shaded intervals mark where the displacement compresses the line (red) or stretches it
+(blue) by more than 15%.
 ```
 
-During the readout, signal at a point where the field is $f$ Hz lands $f \times$ readout time
-voxels away from where it belongs. Here 1 Hz is 0.056 voxel, or 0.17 mm. If every voxel on the line
-moved by the same amount the image would just shift. The trouble comes from the change in
-displacement along the line:
+An off-resonance of $f$ Hz displaces signal along the phase-encoding axis by $f\,T_\text{ro}$
+voxels, where $T_\text{ro}$ is the total readout time. In this acquisition 1 Hz corresponds to
+0.056 voxels (0.17 mm), and the 102 Hz peak to a posterior displacement of 17 mm.
 
-- From voxel 40 to 55 the displacement falls from +1 to −17 mm, so each voxel moves further
-  backwards than the one behind it. Neighbouring voxels are squeezed together: around voxel 45,
-  three voxels' worth of signal lands in about one. That is the bright peak in the acquired b=0,
-  2.4 times the reference's brightest voxel nearby. This is **pile-up**.
-- From voxel 68 to 76 the displacement climbs back to zero, so voxels are pulled apart and their
-  signal is spread thin. This is **stretching**; in the extreme it becomes dropout.
+A uniform displacement would translate the image without changing its intensities. Intensities
+change where the displacement varies along the line. A useful picture is a strip of elastic with
+ink painted along it. Where the strip is compressed the ink is concentrated and appears darker;
+where it is stretched the ink is spread out and appears paler. The total amount of ink does not
+change. On this line:
 
-The total signal on the line does not change. It is only moved around.
+- Between voxels 40 and 55 the displacement changes from 1 mm anterior to 17 mm posterior. Each
+  voxel is displaced further posteriorly than its posterior neighbour, so neighbouring voxels
+  converge. Near voxel 45 the line is compressed to 34% of its original length. The acquired
+  signal there peaks at 5.2 times the median brain signal, compared with 2.2 for the brightest
+  nearby voxel of the reference. This is *pile-up*.
+- Between voxels 68 and 76 the displacement returns from 12 mm posterior to zero. Neighbouring
+  voxels diverge and their signal is spread over a longer interval. This is *stretching*; in its
+  extreme form it produces signal dropout.
 
-## Step 1: predict the acquired line
+## Forward model
 
-The forward model writes that last sentence as code. Picture each voxel of the undistorted
-reference as a cell one voxel wide whose **area** is its signal. Move every cell edge by the
-displacement at that edge, keep each cell's area, and then add up how much area lands inside each
-voxel:
+unpile's forward model implements the elastic-strip picture. Each voxel of the reference is treated
+as a cell of unit width whose area equals its signal. Both edges of each cell are displaced by the
+displacement at that edge, taken as the mean of the displacements of the two voxels it separates,
+so adjacent cells remain contiguous. Each cell keeps its area: a cell compressed to one third of
+its width becomes three times as tall. The predicted value of an output voxel is the total area of
+all cells that falls within it.
 
-```{figure} ../_static/line_cells.png
-:alt: Coloured cells for each reference voxel, the same cells after their edges moved, and the stacked contributions each output voxel collects.
+```{figure} ../_static/line_cells.svg
+:alt: Coloured cells for each reference voxel, the same cells after their edges are displaced, and the contributions collected by each output voxel.
 
-The reference's voxels as cells (top); the same cells with their edges moved by the true
-displacement, each keeping its area, so squeezed cells grow taller (middle); and what each voxel of
-the prediction collects, stacked by the cell it came from (bottom). The black dots are the acquired
-b=0. Voxel 44, the top of the peak, collects most of reference voxels 46 to 49.
+Voxels 34–61 of the line at the true displacement. (A) The reference, one cell per voxel. (B) The
+same cells after their edges are displaced; each keeps its area, so compressed cells become taller.
+(C) The prediction: the area collected by each output voxel, coloured by the cell it came from.
+Black dots: the acquired b=0, divided by the fitted intensity gain (see Objective). The acquired
+peak at voxel 44 receives most of its signal from reference voxels 46 to 49.
 ```
 
-That is the whole forward model: a pushforward that conserves signal, which is why unpile calls
-it a *splat*. In the code a cell is the interval between its two moved edges, and the share of
-cell $i$ that lands in voxel $j$ is one entry of a matrix:
+Because the operation redistributes area rather than interpolating values, it conserves the total
+signal on the line. unpile refers to it as a *splat*, or mass-conserving pushforward. In matrix
+form, the share of cell $i$ that falls in output voxel $j$ is the entry $W_{ij}$, and the prediction
+is $\text{pred}_j = \sum_i W_{ij}\,\text{ref}_i$:
 
 ```{literalinclude} ../tools/line_model.py
 :pyobject: moved_cells
@@ -64,176 +90,232 @@ cell $i$ that lands in voxel $j$ is one entry of a matrix:
 :pyobject: splat_weights
 ```
 
-One detail makes the fit possible. With sharp voxel boundaries, a cell narrower than a voxel adds
-the same amount wherever it sits inside that voxel. Nudging it then changes nothing, so the fit has
-no gradient to follow. unpile blurs each voxel boundary over half a voxel (the `ramp` function, a
-tent by default), so the prediction always changes smoothly as an edge moves.
+The voxel boundaries are smoothed. With sharp boundaries, a cell narrower than a voxel contributes
+the same amount wherever it lies within that voxel. A small change of the field then leaves the
+prediction unchanged, and the derivative with respect to the field is zero. unpile therefore
+smooths each boundary with a triangular kernel of half-width 0.5 voxels (the `ramp` function).
+The prediction then varies continuously with every edge position, and a gradient is available
+everywhere.
 
-## Why predict forward instead of undoing the distortion
+## Comparison with resampling models
 
-The alternative is to go the other way: resample the acquired image at the displaced positions to
-undo the distortion, and compare the result with the reference. A general-purpose registration
-does that. TOPUP's model does it too, and also scales the intensities by the Jacobian (the local
-stretch, $1 + d'$).
+Most correction methods model the distortion in the opposite direction. They resample the acquired
+image at the displaced positions to undo the distortion, and compare the result with an
+undistorted image; this is a *pull* model. Registration-based fieldmap-less correction, such as
+SyN-SDC, resamples only (Wang et al., 2017). TOPUP (Andersson et al., 2003) is also a pull model. It
+resamples each acquired image and multiplies the result by the Jacobian of the displacement,
+$1 + \partial d / \partial y$, which corrects the intensity change caused by compression and
+stretching. It then compares the corrected images of the two phase-encoding directions with each
+other. unpile uses a *push* model: values are carried forward from the undistorted image to the
+acquired grid.
 
-```{figure} ../_static/line_push_pull.png
-:alt: At the true field, the reference pushed forward against the acquired line, and the acquired line pulled back against the reference.
+```{figure} ../_static/line_push_pull.svg
+:alt: At the true field, the reference pushed forward against the acquired line, and the acquired line resampled with the Jacobian against the reference.
 
-Both directions at the true field, on the stretch of the line around the pile-up.
+Both models evaluated at the true displacement, voxels 34–61. (A) Push: the reference
+predicted onto the acquired grid, compared with the acquired b=0. (B) Pull: the acquired b=0
+resampled and multiplied by the Jacobian, compared with the reference.
 ```
 
-Both are exact in a noiseless continuous world. On a voxel grid they are not. In the pile-up, one
-acquired voxel holds what came from three reference voxels. Pulling it back can only spread that
-one value over the three, so the detail between them is lost. Pushing forward sums the detailed
-reference and loses nothing the comparison needs. In the 16 pile-up voxels of this line, at the
-true field:
+For a continuous image the two directions are equivalent; on a voxel grid they are not. In a
+region of pile-up, one acquired voxel contains signal from about three reference voxels. Resampling
+can only distribute that one value over the three positions, and the structure among them cannot
+be recovered from the acquired image. The push model sums the reference, which still contains that
+structure, onto the coarser acquired grid. It never needs to recover the lost detail.
 
-| comparison | rms difference |
-|---|---|
-| reference pushed forward vs the acquired b=0 | 0.12 |
-| acquired b=0 pulled back × Jacobian vs the reference | 0.18 |
-| acquired b=0 resampled only vs the reference | 1.55 |
+The table gives the RMS difference at the true displacement, as a percentage of the median brain
+signal. A perfect model would leave only noise; in the background of this image the noise standard
+deviation is 4%.
 
-The last row is the important one for registration-based correction. Plain resampling cannot make
-a voxel dimmer. A registration that only resamples can explain a pile-up peak only by bending the
-field out of shape. In stretched voxels the advantage reverses slightly (0.08 for the push against
-0.06 for the pull), so the push model's gain is where the signal piles up, which is where
-fieldmap-less methods have the most trouble.
+| model | compared with | pile-up voxels (16) | stretched voxels (13) |
+|---|---|---|---|
+| push | acquired b=0 | 12% | 8% |
+| pull × Jacobian | reference | 18% | 6% |
+| pull without Jacobian | reference | 155% | 22% |
 
-## Step 2: score a guess
+The push model is more accurate where signal piles up and slightly less accurate where it is
+stretched. Pile-up regions are also where fieldmap-less correction most often fails, so the
+difference matters most there. The last row shows why resampling alone performs poorly in these
+regions: resampling cannot reduce the intensity of a voxel. A registration that only resamples can
+reproduce a pile-up peak only by distorting the field.
 
-For a candidate field, unpile predicts the acquired image and measures how far off it is. With a
-same-contrast reference (the clean b=0 here, or a SynB0 image):
+## Objective
+
+For a candidate field $f$, the prediction is compared with the acquired image. With a reference of
+the same contrast (the clean b=0 here, or a synthetic b=0 from SynB0) the objective is
 
 $$
-\text{loss} = \underbrace{\frac{1}{|M|}\sum_{y \in M} \big(g\,\text{pred}(y) - \text{obs}(y)\big)^2}_{\text{data term}}
-\; + \; \lambda \, \underbrace{\overline{\left(\partial^2 f\right)^2}}_{\text{bending energy}}
-\; + \; \underbrace{\overline{f^2}\big|_{\text{outside the head}}}_{\text{background}}
+L(f) = \frac{1}{|M|}\sum_{y \in M} \big(g\,\text{pred}_f(y) - \text{obs}(y)\big)^2
+\; + \; \lambda\,\overline{\left(\partial^2 f\right)^2}
+\; + \; \overline{\left(f/100\,\text{Hz}\right)^2}\Big|_{\text{outside the head}}
 $$
 
-- $M$ is the brain mask dilated by four voxels.
-- $g$ is one intensity gain, solved in closed form at every evaluation, because the reference and
-  the EPI rarely have the same scale.
-- The bending energy, the mean squared second derivative of the field, keeps the field smooth.
-  $\lambda$ is `--lam` (0.1 by default) or `--lam-mm`.
-- The last term pulls the field to zero more than three voxels outside the head, where there is no
-  signal to pin it.
+- The first term is the mean squared difference over $M$, the brain mask dilated by four voxels.
+  The intensity gain $g$ is a single scalar, solved in closed form at each evaluation, because the
+  reference and the EPI are not on the same intensity scale. In this example the acquired b=0 is
+  about 14% brighter than the reference.
+- The second term is the bending energy, the mean squared second derivative of the field. It
+  penalises rapid changes in the field. $\lambda$ is set with `--lam` (default 0.1) or `--lam-mm`.
+- The third term draws the field towards zero more than three voxels outside the head, where there
+  is no signal to determine it.
 
-With a T2w reference, the data term is instead one minus the local normalized cross-correlation in
-5-voxel windows (`--metric lncc`), which compares shapes rather than intensities.
+The sums run over the whole volume: one scalar objective covers every line, and all lines are fitted
+together through the shared three-dimensional field. On this page the sums run over the one line.
 
-## Step 3: which way to move
+With a T2w reference the first term is replaced by one minus the local normalized cross-correlation
+in 5-voxel windows (`--metric lncc`). This compares the local shape of the two signals rather than
+their intensities.
 
-At the start the field is zero, so the prediction is just the reference. PyTorch differentiates
-the loss through the splat and gives the direction in which to change the field at every voxel:
+## The initial gradient
 
-```{figure} ../_static/line_gradient.png
-:alt: The prediction with no field against the acquired line, and the downhill direction for the field, raw and through the coarse control grid, next to the true displacement.
+At zero field the prediction is the reference, scaled by the gain. Automatic differentiation
+through the splat gives the derivative of the objective with respect to the field at every voxel.
 
-Top: with no field, the prediction (dashed) misses the pile-up peak and has its edges in the wrong
-places. Bottom: the downhill direction for the field at each voxel (orange); the same step after
-it passes through the 24 mm control grid (blue); and the true displacement for comparison (grey).
-All three are scaled to the same height.
+```{figure} ../_static/line_gradient.svg
+:alt: The prediction at zero field against the acquired line, and the descent direction for the field, per voxel and projected on the coarse B-spline grid, next to the true displacement.
+
+(A) Prediction at zero field compared with the acquired b=0. (B) The direction in which the
+objective decreases, expressed as a displacement: per voxel (orange), and after projection on the
+24 mm B-spline grid used at the first level (blue). The true displacement is shown for comparison
+(grey). Each curve is scaled to unit peak; only the shapes are compared.
 ```
 
-The raw gradient is local. It is large only where an edge of the prediction sits in the wrong
-place relative to the acquisition, around voxels 42–48 and 63–69, and it says almost nothing in between.
-That alone would be a poor guide. unpile does not fit the field voxel by voxel, though. The field
-is a cubic B-spline whose control points start 24 mm (8 voxels) apart, and each control point
-gathers the local pushes from the 32 voxels its spline covers. Through the coarse grid, the very first step already has roughly the
-shape of the true displacement.
+The per-voxel derivative is local. It is large only near edges of the prediction that are
+misplaced relative to the acquisition (voxels 42–48 and 63–69) and close to zero elsewhere. On its
+own it would be a poor guide to the field.
 
-## Step 4: iterate
+The field, however, is not estimated voxel by voxel. It is represented as a cubic B-spline. At the
+first level the control points are 24 mm (8 voxels) apart, and each basis function spans 32 voxels.
+The derivative with respect to a control point is the sum of the per-voxel derivatives weighted by
+its basis function, so the update is pooled over a wide neighbourhood. After this projection the
+first update (blue) is smooth and already has the shape of the true displacement.
 
-unpile minimises the loss over the control-point values with L-BFGS, a quasi-Newton method that
-builds up a picture of the loss's curvature from the gradients it has seen. `src/lbfgs.rs` follows
-`torch.optim.LBFGS` with a strong-Wolfe line search, which is what the walkthrough uses.
+## Iterations
 
-```{figure} ../_static/line_fit.gif
-:alt: Animation: the prediction converging on the acquired line while the fitted displacement converges on the true one.
+The B-spline coefficients are estimated with L-BFGS, a quasi-Newton method that approximates the
+curvature of the objective from the gradients of previous iterations (Liu and Nocedal, 1989).
+`src/lbfgs.rs` implements the same algorithm as `torch.optim.LBFGS` with a strong-Wolfe line
+search, which is used on this page.
 
-The whole fit, one frame per iteration (every sixth late in each level).
+```{figure} ../_static/line_fit.svg
+:alt: Animation of the prediction converging on the acquired line while the estimated displacement converges on the true displacement.
+
+The complete estimation. Each frame is one iteration; later in each level, every sixth iteration
+is shown.
 ```
 
-```{figure} ../_static/line_fit_steps.png
-:alt: Snapshots of prediction against acquisition and fitted against true displacement at iterations 0, 1, 3, 10 and 60 of the coarse grid and at the end.
+```{figure} ../_static/line_fit_steps.svg
+:alt: Snapshots of the prediction against the acquired line and of the estimated against the true displacement during the first level and at the end.
 
-Snapshots. Left: the prediction (dashed, × gain) against the acquired b=0. Right: the fitted
-displacement against the truth, with the rms error inside the brain.
+Snapshots at iterations 0, 1, 3, 10 and 60 of the 24 mm level and at the end of the 3 mm level.
+Left: prediction (dashed) and acquired b=0. Right: estimated and true displacement.
 ```
 
-The first iteration only moves cautiously in the right direction (9.2 → 7.8 mm rms error). By the
-third the pile-up peak has started to form in the prediction (2.6 mm). By the tenth the peak is
-in place (1.3 mm). The coarse grid then settles at 1.1 mm: 24 mm control points cannot follow the
-field's sharper turns.
+| level | iteration | RMS displacement error in the brain |
+|---|---|---|
+| 24 mm | 0 | 9.2 mm |
+| 24 mm | 1 | 7.8 mm |
+| 24 mm | 3 | 2.6 mm |
+| 24 mm | 10 | 1.3 mm |
+| 24 mm | 60 | 1.1 mm |
 
-## Step 5: coarse to fine
+By the third iteration the pile-up peak has formed in the prediction, and by the tenth it is in the
+correct position. The remaining error at the end of the level reflects the limited flexibility of a
+24 mm control grid, which cannot follow the sharper changes of the true field.
 
-The default schedule fits on control grids of 24, 12, 6 and 3 mm (`--levels`), each starting from
-the previous one's field. On all but the last, the prediction and the acquisition are both blurred
-by a Gaussian of half the grid spacing (up to 3 voxels). The fit therefore first matches the broad
-shape of the signal, where a large error in the field still shows up as a smooth error in the
-images, and only then matches the fine detail.
+## Coarse-to-fine schedule
 
-```{figure} ../_static/line_levels.png
-:alt: The data term and bending energy over all iterations of all levels, and the fitted displacement after each level against the truth.
+The default schedule (`--levels 24,12,6,3`) estimates the field on control grids of decreasing
+spacing. Each level starts from the field of the previous one. At every level except the last,
+the prediction and the acquired image are both smoothed with a Gaussian kernel whose standard
+deviation is half the control-point spacing, limited to 3 voxels.
 
-Left: the data term and the weighted bending energy over the whole schedule. The data term jumps
-at the start of each level because the blur gets smaller, so the comparison gets stricter. Right:
-the displacement after each level against the truth.
+Smoothing enlarges the range of fields from which the estimation converges. If the field is wrong by
+several millimetres, sharp edges in the prediction and the acquisition do not overlap at all, and
+the derivative carries no information about which way to move them. After smoothing, the same
+error produces a broad intensity mismatch whose gradient points towards the solution. In the same
+way, two blurred photographs can be aligned roughly before their details are compared.
+
+```{figure} ../_static/line_levels.svg
+:alt: The data term and bending energy over all iterations of all levels, and the estimated displacement after each level against the truth.
+
+(A) Data term and weighted bending energy over the full schedule. The data term increases at the
+start of each level because the smoothing is reduced, which makes the comparison stricter. (B)
+Estimated displacement at the end of each level.
 ```
 
-On this line the error goes 1.12, 0.53, 0.36, 0.44 mm. The 3 mm grid fits a little of the noise,
-because on a single line nothing ties the field to its neighbours. In the volume the bending energy
-couples every line to the ones beside and above it.
+| control-point spacing | smoothing (standard deviation) | RMS displacement error in the brain |
+|---|---|---|
+| 24 mm | 9 mm | 1.12 mm |
+| 12 mm | 6 mm | 0.53 mm |
+| 6 mm | 3 mm | 0.36 mm |
+| 3 mm | none | 0.44 mm |
 
-## Step 6: the corrected line
+The error increases slightly at the last level. Without smoothing, the 3 mm grid fits part of the
+noise along this line. In the volume, the bending energy couples each line to its neighbours in the
+other two directions, which limits this effect.
 
-Once the field is known, the corrected image is the one that, pushed forward, best explains the
-acquisition. unpile solves for it by least squares with a small smoothness penalty (conjugate
-gradients in `unwarp`) and writes it as `corrected.nii.gz`.
+## Corrected image
 
-```{figure} ../_static/line_unwarp.png
-:alt: Corrected lines from the fitted field: resampled only, resampled with the Jacobian, and the inverse of the push, against the reference.
+With the field estimated, the corrected image is the image that, pushed forward, best explains the
+acquisition. unpile computes it as the least-squares solution with a small smoothness penalty,
+using conjugate gradients (`unwarp` in `src/problem.rs`), and writes it to `corrected.nii.gz`.
 
-The corrected line around the pile-up, divided by the fitted gain to put it on the reference's
-scale.
+```{figure} ../_static/line_unwarp.svg
+:alt: Corrected lines from the estimated field: resampled, resampled with the Jacobian, and the least-squares inverse of the push, against the reference.
+
+Corrected line at the estimated field, voxels 34–61, divided by the fitted gain so that it is on the
+reference's intensity scale.
 ```
 
-The ITK warp, `sdc_warp.nii.gz`, is what qsiprep and `antsApplyTransforms` use. It moves signal
-back to where it belongs, but resampling cannot undo a change in brightness: the pile-up comes back
-as a broad bright band (dotted). Scaling by the Jacobian fixes the brightness (dashed). The inverse
-of the push also recovers the detail inside the pile-up. Against the reference, in the pile-up
-voxels, the rms differences are 1.52 resampled only, 0.16 with the Jacobian and 0.09 for the
-inverse of the push.
+The displacement field `sdc_warp.nii.gz` is applied by `antsApplyTransforms` as a resampling
+(dotted). It returns signal to the correct position but does not change intensities, so the pile-up
+remains as a broad bright band. Multiplying by the Jacobian corrects the intensities (dashed). The
+least-squares inverse of the push also recovers the structure within the pile-up. In the pile-up
+voxels, the RMS difference from the reference is 152% for resampling, 16% for resampling with the
+Jacobian, and 9% for the inverse of the push.
 
 ## From one line to the volume
 
-The real fit is the same objective in three dimensions:
+The volumetric estimation minimises the same objective with the following differences:
 
-- The field is one 3-D cubic B-spline. Every line along the phase-encoding axis is pushed forward
-  independently, but the lines share control points and the bending energy includes every axis and
-  the cross terms, so neighbouring lines constrain each other.
-- With a T2w reference (`--metric lncc --pose`) a rigid position of the T2w is fitted together with
-  the field. A uniform shift along the phase-encoding axis could be either a field offset or a
-  translation, so the field's mean inside the brain is held near zero.
-- With a gradient-echo fieldmap (`--fieldmap`) the field is the fieldmap under its own rigid
-  position, plus a second-order shim polynomial, plus a B-spline residual kept small by a ridge
-  penalty. The same splat and data term fit all three. See {doc}`gre-refinement`.
-- With an opposite-polarity pair (`--reverse-epi`) there is no reference. The undistorted image is
-  re-solved between rounds as the one that, pushed forward with $+d$ and $-d$, best explains both
-  acquisitions. See {doc}`opposite-polarity`.
+- The field is a single three-dimensional cubic B-spline. Each line along the phase-encoding axis is
+  pushed forward separately, but neighbouring lines share control points, and the bending energy
+  includes second derivatives along all three axes and the mixed derivatives. Neighbouring lines
+  therefore constrain each other.
+- With a T2w reference (`--metric lncc --pose`), a rigid transformation of the T2w is estimated
+  together with the field. A uniform shift along the phase-encoding axis can be explained either as
+  a constant field or as a translation, so the mean of the field inside the brain is penalised
+  towards zero.
+- With a gradient-echo fieldmap (`--fieldmap`), the field is the fieldmap under its own rigid
+  transformation, plus a second-order shim polynomial, plus a B-spline residual with a ridge
+  penalty. The same splat and data term are used to estimate all three; see {doc}`gre-refinement`.
+- With a pair of opposite phase-encoding directions (`--reverse-epi`) there is no reference. The
+  undistorted image is re-estimated between rounds as the image that, pushed forward with $+d$ and
+  $-d$, best explains both acquisitions; see {doc}`opposite-polarity`.
 
-## Run it yourself
+## Reproducing the figures
 
 ```bash
 pip install torch nibabel matplotlib
 python docs/tools/make_line_walkthrough.py --testdata testdata/rpe --out docs/_static
 ```
 
-The script prints the operator check, then the fit level by level. It differs from `unpile fit` in
-small ways that do not change the story: the bending energy and the blur act along the line only,
-the corrected line comes from a direct solve rather than 25 conjugate-gradient iterations, and
-$\lambda$ is the CLI default, not tuned for one dimension. The walkthrough uses the tent kernel that
-`unpile fit` uses. The operator check uses the prototype's Gaussian kernel, because the stored
-outputs were made with it.
+The script first checks the line operators against the prototype outputs, then runs the
+estimation and prints the values quoted on this page. It differs from `unpile fit` in the following
+respects: the bending energy and the smoothing act along the line only; the corrected line is
+obtained with a direct solver instead of 25 conjugate-gradient iterations; and $\lambda$ is the
+command-line default, which was not tuned for one dimension. The estimation uses the triangular
+boundary kernel of `unpile fit`. The operator check uses the prototype's Gaussian kernel, with which
+the stored outputs were made.
+
+## References
+
+- Andersson, J. L. R., Skare, S., and Ashburner, J. (2003). How to correct susceptibility
+  distortions in spin-echo echo-planar images: application to diffusion tensor imaging.
+  *NeuroImage*, 20(2), 870–888.
+- Liu, D. C., and Nocedal, J. (1989). On the limited memory BFGS method for large scale
+  optimization. *Mathematical Programming*, 45, 503–528.
+- Wang, S., Peterson, D. J., Gatenby, J. C., Li, W., Grabowski, T. J., and Madhyastha, T. M.
+  (2017). Evaluation of field map and nonlinear registration methods for correction of
+  susceptibility artifacts in diffusion MRI. *Frontiers in Neuroinformatics*, 11, 17.
