@@ -10,11 +10,10 @@ axis is predicted with the same three-dimensional field, and a single objective 
 brain is minimised. Restricting it to one line here keeps every quantity small enough to plot. How
 the line-wise computation extends to the volume is described at the end of the page.
 
-The figures were produced with PyTorch implementations of unpile's one-dimensional operators
-(`docs/tools/line_model.py`). These are checked against the outputs of the original PyTorch
-prototype stored in `testdata/rpe`, which are also the reference for the Rust implementation
-(`unpile check`). Over all lines of that volume the largest absolute difference is 4 × 10⁻⁶ of
-the median brain signal.
+The figures were made with short PyTorch versions of unpile's operators
+(`docs/tools/line_model.py`), which reproduce the Rust operators' reference outputs to within
+4 × 10⁻⁶ of the median brain signal. The method's background, its relation to other correction
+methods and a comparison of forward operators are in the accompanying manuscript.
 
 ## Data and conventions
 
@@ -136,121 +135,35 @@ smooths each boundary with a triangular kernel of half-width 0.5 voxels (the `ra
 The prediction then varies continuously with every edge position, and a gradient is available
 everywhere.
 
-## Relation to other models
+## Why predict the acquired image
 
-Two properties of a distortion model can be separated: the direction in which images are compared,
-and the operator that moves signal between the undistorted and the distorted grid.
-
-### Direction of comparison
-
-Many correction methods resample the acquired image at the displaced positions to
-undo the distortion, and compare the result with an undistorted image. We refer to this as a
-*pull* model, and to the opposite direction, predicting the acquired image from an undistorted
-one, as a *push* model.
-
-Fieldmap-less correction against an anatomical reference has used the pull direction since Kybic
-et al. (2000). They registered each EPI slice to an undistorted anatomical slice with a cubic
-B-spline deformation restricted to the phase-encoding direction, estimated coarse to fine by least
-squares. Intensity changes were not modelled; high-pass filtering and histogram equalisation made
-the two images comparable instead. Studholme et al. (2000) added signal conservation. They resampled
-a spin-echo EPI volume into the space of an anatomical image and multiplied it by the Jacobian of a
-three-dimensional cubic B-spline displacement along the phase-encoding axis. The displacement was
-estimated together with a rigid transformation, coarse to fine from 30 mm to 10 mm control-point
-spacing, by maximising normalised mutual information, in one variant on log intensities. SyN-SDC
-resamples without changing intensities (Wang et al., 2017). Reversed-gradient methods such as HySCO (Ruthotto et al., 2013) and its GPU
-implementation PyHySCO (Julian and Ruthotto, 2024) use the pull model of Chang and Fitzpatrick
-(1992): both acquisitions are resampled at the displaced positions, multiplied by the Jacobian of
-the displacement, and compared with each other.
-
-Andersson et al. (2003), the method on which FSL's TOPUP is based, describe the image formation of
-spin-echo EPI as a push: a matrix $K$ maps each column of the undistorted object to the distorted
-image, constructed by linear interpolation from the geometry of the displacement (p. 872). $W$
-above is a matrix of the same kind. Their first formulation of field estimation uses this model
-directly: the undistorted image is restored from the two phase-encoding directions by least
-squares, both acquisitions are predicted from it, and the field is chosen to minimise the residual
-(Eqs. 11–14). Because the derivatives of that objective with respect to the field were difficult to
-compute, they adopted a tractable approximation for estimation. Each acquisition is resampled at
-the displaced positions and multiplied by the Jacobian of the displacement,
-$1 + \partial d / \partial y$, and the two corrected images are compared with each other
-(Eqs. 16–17). They note that this formulation is exact for continuous images and becomes an
-approximation only once the images are discretised (Appendix), and they showed on simulated data
-that it recovers a field closely matching the one used to generate the data (Results, Fig. 5). The
-push model was retained for restoring the final images (Eq. 10).
-
-FSL's eddy compares in the push direction (Andersson and Sotiropoulos, 2016). For each volume it
-predicts the undistorted image, resamples the prediction into the space of the acquisition, and
-minimises the squared difference from the acquired volume by Gauss–Newton steps (Eqs. 5–7). Eddy
-estimates eddy-current fields and head motion in this way; the susceptibility field is not
-estimated but supplied, in practice by TOPUP.
-
-FD-Net (Alkilani et al., 2023) estimates the susceptibility field in the push direction. A network
-trained across subjects predicts a field and an undistorted image from the two reversed
-phase-encoding acquisitions. Both acquisitions are predicted from that image with $\pm$ the field,
-and the network is trained to minimise the squared difference from the acquired images. The
-derivatives with respect to the field, the obstacle identified by Andersson et al. (2003), are
-obtained by automatic differentiation.
-
-unpile also estimates the susceptibility field in the push direction with automatic
-differentiation. It differs from FD-Net in three respects: the field is fitted to each subject by
-optimisation rather than predicted by a trained network; a single acquisition can be fitted against
-a reference image, with or without a rigid transformation; and the forward operator integrates
-cells rather than moving points, as described next. Its single-acquisition mode addresses the
-problem of Studholme et al. (2000), a field and a rigid transformation estimated from one EPI and an
-anatomical image, with the comparison made in the push direction instead of the pull direction.
-
-### Operator
-
-Three forward operators appear in the methods above. Eddy's resampling into the acquisition
-(Eq. 5) samples the predicted image by spline interpolation at the source position of each acquired
-voxel and divides by the Jacobian. FD-Net's K-Unit (Eqs. 3–6) moves each source voxel, as a point,
-to its displaced position and shares it between neighbouring acquired voxels with an interpolation
-kernel. The splat moves both edges of each source voxel and integrates the resulting cell over the
-acquired voxels. All three conserve signal in the continuous limit; on a voxel grid they differ
-where the line is compressed or stretched. In a compressed region an acquired voxel contains signal
-from about three reference voxels. Interpolation takes the value at one source position and scales
-it by the inverse Jacobian, about 3, which also triples any interpolation error. Point and cell
-splatting both sum the contributing voxels. Where the line is stretched, a point covers less of the
-acquired grid than the cell it represents, whereas a cell spreads over its full displaced width.
-
-Mass conservation along the phase-encoding line has a long history in reversed-gradient
-correction. Chang and Fitzpatrick (1992) matched the integrals of intensity along each line of two
-acquisitions with opposite gradient polarity. PyHySCO (Julian and Ruthotto, 2024) derives the same
-correspondence from one-dimensional optimal transport and uses it to initialise the field. SuCor
-(Chigurupati and Garyfallidis, 2026) uses the optimal transport map as the estimate itself,
-followed by smoothing across lines. All three require two acquisitions with opposite
-phase-encoding directions.
+The alternative to predicting the acquired image is to undo the distortion: resample the acquired
+image at the displaced positions and compare the result with the undistorted reference. We call
+that a *pull*, and unpile's direction a *push*. Most correction tools pull; TOPUP and HySCO also
+multiply the resampled image by the local stretch (the Jacobian) to undo the intensity change.
 
 ```{figure} ../_static/line_push_pull.svg
 :alt: At the true field, the reference pushed forward against the acquired line, and the acquired line resampled with the Jacobian against the reference.
 
-Push and pull evaluated at the true displacement, voxels 34–61. (A) Push: the reference predicted
-onto the acquired grid by the splat, compared with the acquired b=0. (B) Pull: the acquired b=0
-resampled and multiplied by the Jacobian, compared with the reference.
+Both directions at the true displacement, voxels 34–61. (A) Push: the reference predicted onto the
+acquired grid. (B) Pull: the acquired b=0 resampled and multiplied by the Jacobian.
 ```
 
+The two directions differ where signal piles up. There one acquired voxel holds the signal of
+about three reference voxels. Pushing forward adds those three values, which is how the acquired
+voxel was formed. Pulling back can only spread the one acquired value over the three positions.
 The table gives the RMS difference at the true displacement, as a percentage of the median brain
-signal. A perfect model would leave only noise; in the background of this image the noise standard
-deviation is 4%. The acquired b=0 was simulated by TRXScan in k-space, not with any of these
-operators.
+signal; the noise alone is 4%.
 
-| direction and operator | compared with | pile-up voxels (16) | stretched voxels (13) | other brain voxels (25) |
-|---|---|---|---|---|
-| push, cell splat | acquired b=0 | 12% | 8% | 10% |
-| push, point splat | acquired b=0 | 16% | 16% | 11% |
-| push, interpolation ÷ Jacobian | acquired b=0 | 36% | 10% | 11% |
-| pull, interpolation × Jacobian | reference | 18% | 6% | 8% |
-| pull, interpolation only | reference | 155% | 22% | 9% |
+| direction | compared with | pile-up voxels (16) | stretched voxels (13) |
+|---|---|---|---|
+| push | acquired b=0 | 12% | 8% |
+| pull × Jacobian | reference | 18% | 6% |
+| pull without Jacobian | reference | 155% | 22% |
 
-The point-splat row uses a linear kernel. The interpolation row uses cubic-spline displacement
-with its analytic derivative and cubic B-spline image interpolation. Its pile-up value depends on how the Jacobian is evaluated between
-voxel centres: two other reasonable choices gave 25% and 52%. All three are well above the cell
-splat's 12%. Outside the pile-up and stretched regions the five models perform similarly.
-
-These comparisons concern a single acquisition and a reference on one simulated line, the setting
-of fieldmap-less correction. They compare operators, not tools: TOPUP, HySCO and FD-Net compare
-or predict two acquisitions, and eddy does not estimate the susceptibility field. The last row shows why resampling alone performs poorly in
-pile-up regions: resampling cannot reduce the intensity of a voxel, so a registration that only
-resamples can reproduce a pile-up peak only by distorting the field.
+The push is closer where signal piles up and slightly less close where it is stretched. The last
+row shows why plain registration struggles in pile-up regions: resampling cannot make a voxel
+dimmer, so it can explain a bright pile-up only by bending the field out of shape.
 
 ## Objective
 
@@ -305,10 +218,10 @@ first update (blue) is smooth and already has the shape of the true displacement
 
 ## Iterations
 
-The B-spline coefficients are estimated with L-BFGS, a quasi-Newton method that approximates the
-curvature of the objective from the gradients of previous iterations (Liu and Nocedal, 1989).
-`src/lbfgs.rs` implements the same algorithm as `torch.optim.LBFGS` with a strong-Wolfe line
-search, which is used on this page.
+The B-spline coefficients are estimated with L-BFGS, a quasi-Newton method: it uses the gradients
+of earlier iterations to estimate how the objective curves, and takes larger, better-aimed steps
+than plain gradient descent. `src/lbfgs.rs` follows `torch.optim.LBFGS`, which is used on this
+page.
 
 ```{figure} ../_static/line_fit.svg
 :alt: Animation of the prediction converging on the acquired line while the estimated displacement converges on the true displacement.
@@ -371,12 +284,8 @@ other two directions, which limits this effect.
 ## Corrected image
 
 With the field estimated, the corrected image is the image that, pushed forward, best explains the
-acquisition. unpile computes the least-squares solution with a small ridge and first-derivative
-smoothness penalty, using conjugate gradients (`unwarp` in `src/problem.rs`), and writes it to
-`corrected.nii.gz`. Restoring the image by solving the forward model, rather than by resampling,
-follows Munger et al. (2000). Given a measured field map, they solved the EPI imaging equation for
-the undistorted image by conjugate gradients, either for each phase-encoding profile or for the
-whole slice. Andersson et al. (2003, Eq. 6) state the same problem with the matrix $K$.
+acquisition. unpile finds it by least squares with a small smoothness penalty (`unwarp` in
+`src/problem.rs`) and writes it to `corrected.nii.gz`.
 
 ```{figure} ../_static/line_unwarp.svg
 :alt: Corrected lines from the estimated field: resampled, resampled with the Jacobian, and the least-squares inverse of the push, against the reference.
@@ -388,28 +297,20 @@ reference's intensity scale.
 The displacement field `sdc_warp.nii.gz` is applied by `antsApplyTransforms` as a resampling
 (dotted). It returns signal to the correct position but does not change intensities, so the pile-up
 remains as a broad bright band. Multiplying by the Jacobian corrects the intensities (dashed). The
-solid line is the least-squares inverse.
+solid line is the least-squares solution.
 
-No method can fully restore the intensities inside a pile-up from a single acquisition. Andersson
-et al. (2003) make this point in the section "On the existence of $K^{-1}$". Where several voxels
-are mapped to one, $K$ is rank deficient, and "we cannot deduce a sample from its mean". The same
-holds for $W$ on this line: 5 of its 85 singular values are zero. Even with the true field and no
-noise, the least-squares restoration from this line differs from the reference by 12% in the
-pile-up voxels. Adding the opposite phase-encoding direction removes the deficiency, because the
-region compressed in one direction is stretched in the other. The stacked matrix
-$[W_{+}\;W_{-}]$ has no singular value below 0.34, and the noise-free restoration is exact. This
-is the design of Andersson et al.'s two-acquisition method and of unpile's `--reverse-epi` mode.
-Eddy makes the same point about its own resampling and offers the least-squares restoration with
-$K$ matrices, regularised with a Laplacian, when every volume is acquired with both
-phase-encoding directions (Andersson and Sotiropoulos, 2016, section "Final resampling").
+None of them can restore the detail inside a pile-up from one acquisition. Knowing the sum of three
+numbers does not tell you the three numbers, and a piled-up voxel records only the sum. Even with
+the true field and no noise, the restoration from this line differs from the reference by 12% in
+the pile-up voxels. A second acquisition with the opposite phase-encoding direction supplies what
+is missing: the region compressed in one direction is stretched in the other, and from both the
+noise-free restoration is exact. This is what `--reverse-epi` uses.
 
-At the estimated field, the RMS difference from the reference in the pile-up voxels is 152% for
-resampling, 16% for resampling with the Jacobian, and 9% for the least-squares inverse. The lower
-value for the least-squares inverse comes from its smoothness penalty, which assigns smooth values
-to the components that the acquisition does not determine; it does not recover the lost detail. At
-the true field, without the penalty, the least-squares inverse and Jacobian resampling differ from
-the reference by the same amount (18%). For a single acquisition, `corrected.nii.gz` is therefore
-a regularised estimate in regions of pile-up.
+In the pile-up voxels at the estimated field, the RMS difference from the reference is 152% for
+resampling, 16% for resampling with the Jacobian, and 9% for the least-squares solution. The
+smoothness penalty, not recovered detail, accounts for the lower value: it fills in what the
+acquisition does not determine with smooth values. For a single acquisition, treat
+`corrected.nii.gz` as a regularised estimate in regions of pile-up.
 
 ## From one line to the volume
 
@@ -444,37 +345,3 @@ obtained with a direct solver instead of 25 conjugate-gradient iterations; and $
 command-line default, which was not tuned for one dimension. The estimation uses the triangular
 boundary kernel of `unpile fit`. The operator check uses the prototype's Gaussian kernel, with which
 the stored outputs were made.
-
-## References
-
-- Andersson, J. L. R., Skare, S., and Ashburner, J. (2003). How to correct susceptibility
-  distortions in spin-echo echo-planar images: application to diffusion tensor imaging.
-  *NeuroImage*, 20(2), 870–888.
-- Alkilani, A. Z., Çukur, T., and Saritas, E. U. (2023). FD-Net: an unsupervised deep
-  forward-distortion model for susceptibility artifact correction in EPI. *Magnetic Resonance in
-  Medicine*. doi:10.1002/mrm.29851.
-- Andersson, J. L. R., and Sotiropoulos, S. N. (2016). An integrated approach to correction for
-  off-resonance effects and subject movement in diffusion MR imaging. *NeuroImage*, 125,
-  1063–1078.
-- Chang, H., and Fitzpatrick, J. M. (1992). A technique for accurate magnetic resonance imaging in
-  the presence of field inhomogeneities. *IEEE Transactions on Medical Imaging*, 11, 319–329.
-- Chigurupati, S., and Garyfallidis, E. (2026). SuCor: susceptibility distortion correction via
-  parameter-free and self-regularized optimal transport. arXiv:2603.16758.
-- Julian, A., and Ruthotto, L. (2024). PyHySCO: GPU-enabled susceptibility artifact distortion
-  correction in seconds. *Frontiers in Neuroscience*, 18, 1406821.
-- Kybic, J., Thévenaz, P., Nirkko, A., and Unser, M. (2000). Unwarping of unidirectionally
-  distorted EPI images. *IEEE Transactions on Medical Imaging*, 19(2), 80–93.
-- Liu, D. C., and Nocedal, J. (1989). On the limited memory BFGS method for large scale
-  optimization. *Mathematical Programming*, 45, 503–528.
-- Munger, P., Crelier, G. R., Peters, T. M., and Pike, G. B. (2000). An inverse problem approach
-  to the correction of distortion in EPI images. *IEEE Transactions on Medical Imaging*, 19(7),
-  681–689.
-- Ruthotto, L., Mohammadi, S., Heck, C., Modersitzki, J., and Weiskopf, N. (2013). Hyperelastic
-  susceptibility artifact correction of DTI in SPM. In *Bildverarbeitung für die Medizin 2013*,
-  Springer. doi:10.1007/978-3-642-36480-8_60.
-- Studholme, C., Constable, R. T., and Duncan, J. S. (2000). Accurate alignment of functional EPI
-  data to anatomical MRI using a physics-based distortion model. *IEEE Transactions on Medical
-  Imaging*, 19(11), 1115–1127.
-- Wang, S., Peterson, D. J., Gatenby, J. C., Li, W., Grabowski, T. J., and Madhyastha, T. M.
-  (2017). Evaluation of field map and nonlinear registration methods for correction of
-  susceptibility artifacts in diffusion MRI. *Frontiers in Neuroinformatics*, 11, 17.
