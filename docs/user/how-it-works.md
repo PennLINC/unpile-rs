@@ -12,8 +12,7 @@ the line-wise computation extends to the volume is described at the end of the p
 
 The figures were made with short PyTorch versions of unpile's operators
 (`docs/tools/line_model.py`), which reproduce the Rust operators' reference outputs to within
-4 × 10⁻⁶ of the median brain signal. The method's background, its relation to other correction
-methods and a comparison of forward operators are in the accompanying manuscript.
+4 × 10⁻⁶ of the median brain signal.
 
 ## Data and conventions
 
@@ -334,7 +333,7 @@ The volumetric estimation minimises the same objective with the following differ
 ## Reproducing the figures
 
 ```bash
-pip install torch nibabel matplotlib scipy
+pip install torch nibabel matplotlib
 python docs/tools/make_line_walkthrough.py --testdata testdata/rpe --out docs/_static
 ```
 

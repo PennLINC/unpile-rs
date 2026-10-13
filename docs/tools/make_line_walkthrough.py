@@ -4,7 +4,7 @@
 
     python docs/tools/make_line_walkthrough.py --testdata testdata/rpe --out docs/_static
 
-Needs torch, nibabel, matplotlib and scipy. The line operators live in line_model.py; before drawing
+Needs torch, nibabel and matplotlib. The line operators live in line_model.py; before drawing
 anything this script checks them against the PyTorch prototype's outputs in testdata/rpe. It
 prints the numbers quoted on the page.
 """
@@ -293,20 +293,10 @@ def fig_push_pull(d, out):
     save(fig, out, "line_push_pull.svg")
     jac = 1 + lm.ddx(disp)
     plain = lm.pull(d["obs"], disp) / gain
-    def scaled(p):
-        return p * lm.ssd_with_gain(p, d["obs"], d["near"])[1]
-
-    interp = scaled(lm.forward_interp(d["ref"], disp, "cubic"))
-    points = scaled(lm.point_splat(d["ref"], disp))
-    variants = {v: scaled(lm.forward_interp(d["ref"], disp, v)) for v in ("cubic", "linear", "central")}
     nums = {}
-    for name, sel in [("pileup", (jac < 0.85) & d["brain"]), ("stretched", (jac > 1.15) & d["brain"]),
-                      ("other_brain", (jac >= 0.85) & (jac <= 1.15) & d["brain"])]:
-        nums[name] = dict(n=int(sel.sum()), push=rms(push - d["obs"], sel), point_splat=rms(points - d["obs"], sel),
-                          forward_interp=rms(interp - d["obs"], sel),
-                          pull_jac=rms(pull_jac - d["ref"], sel), pull_plain=rms(plain - d["ref"], sel))
-    pile = (jac < 0.85) & d["brain"]
-    nums["forward_interp_variants_pileup"] = {v: rms(p - d["obs"], pile) for v, p in variants.items()}
+    for name, sel in [("pileup", (jac < 0.85) & d["brain"]), ("stretched", (jac > 1.15) & d["brain"])]:
+        nums[name] = dict(n=int(sel.sum()), push=rms(push - d["obs"], sel), pull_jac=rms(pull_jac - d["ref"], sel),
+                          pull_plain=rms(plain - d["ref"], sel))
     return nums
 
 
@@ -429,23 +419,12 @@ def restoration_limits(d):
     """How much of the pile-up one acquisition can restore, and what the opposite direction adds."""
     disp = d["field_true"] * d["step"]
     pile = ((1 + lm.ddx(disp)) < 0.85) & d["brain"]
-    gain = lm.ssd_with_gain(lm.splat(d["ref"], disp), d["obs"], d["near"])[1]
     out = {}
-    w_one = lm.splat_weights(disp)
-    w_two = torch.cat([w_one, lm.splat_weights(-disp)], 1)
-    for name, w in [("one_direction", w_one), ("two_directions", w_two)]:
-        sv = torch.linalg.svdvals(w)
-        out[f"{name}_zero_singular_values"] = int((sv < 1e-3).sum())
-        out[f"{name}_smallest_singular_value"] = sv.min().item()
     # noise-free: the reference pushed forward with the true field, restored without any penalty
     one = lm.restore([lm.splat(d["ref"], disp)], [disp], ridge=1e-6, grad_reg=0.0)
     two = lm.restore([lm.splat(d["ref"], disp), lm.splat(d["ref"], -disp)], [disp, -disp], ridge=1e-6, grad_reg=0.0)
     out["noise_free_one_direction"] = rms(one - d["ref"], pile)
     out["noise_free_two_directions"] = rms(two - d["ref"], pile)
-    # the acquired line at the true field: the penalty, not the model, makes the difference
-    for gr in (0.05, 0.0):
-        out[f"acquired_inverse_grad_reg_{gr}"] = rms(lm.unwarp(d["obs"], disp, grad_reg=gr) / gain - d["ref"], pile)
-    out["acquired_pull_jacobian"] = rms(lm.pullback(d["obs"], disp) / gain - d["ref"], pile)
     return out
 
 
