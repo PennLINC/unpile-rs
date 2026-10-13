@@ -92,6 +92,50 @@ def pull(img, disp):
     return padded.gather(-1, i0) * (1 - w) + padded.gather(-1, i0 + 1) * w
 
 
+def forward_interp(img, disp, variant="cubic"):
+    """Forward prediction by interpolation, the form of eq. 5 in Andersson and Sotiropoulos (2016).
+
+    Each acquired voxel y takes the value of ``img`` at its source position u, where u + d(u) = y,
+    divided by the Jacobian 1 + d'(u). Variants differ in how d and its derivative are evaluated
+    between voxel centres:
+
+    - ``"cubic"``: cubic-spline displacement with its analytic derivative, cubic B-spline image
+      interpolation (closest to eddy, which uses B-spline fields and spline interpolation);
+    - ``"linear"``: piecewise-linear displacement, derivative by finite differences on a fine grid;
+    - ``"central"``: piecewise-linear displacement, Jacobian 1 + central difference at voxel centres,
+      interpolated linearly (the Jacobian ``pullback`` uses).
+
+    One line, no folds. Needs scipy.
+    """
+    from scipy.interpolate import CubicSpline
+    from scipy.ndimage import map_coordinates
+
+    n = img.shape[-1]
+    grid = np.arange(n)
+    dv, iv = disp.double().numpy(), img.double().numpy()
+    u = np.linspace(0, n - 1, 20 * (n - 1) * 12 + 1)
+    if variant == "cubic":
+        spline = CubicSpline(grid, dv)
+        dfun, jfun = spline, (lambda s: 1 + spline(s, 1))
+    elif variant == "linear":
+        y = u + np.interp(u, grid, dv)
+        jac = np.gradient(y, u)
+        dfun, jfun = (lambda s: np.interp(s, grid, dv)), (lambda s: np.interp(s, u, jac))
+    elif variant == "central":
+        jac = 1 + np.gradient(dv)
+        dfun, jfun = (lambda s: np.interp(s, grid, dv)), (lambda s: np.interp(s, grid, jac))
+    else:
+        raise ValueError(variant)
+    y = u + dfun(u)
+    assert np.all(np.diff(y) > 0), "forward_interp needs a mapping without folds"
+    src = np.interp(grid, y, u)
+    if variant == "cubic":
+        val = map_coordinates(iv, [src], order=3, mode="nearest")
+    else:
+        val = np.interp(src, grid, iv)
+    return torch.from_numpy(val / jfun(src)).to(img.dtype)
+
+
 def pullback(img, disp):
     """TOPUP-style unwarp of an observation: resample at y + d(y), times the Jacobian 1 + d'(y)."""
     return pull(img, disp) * (1 + ddx(disp)).clamp_min(0.05)

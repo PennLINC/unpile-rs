@@ -136,64 +136,93 @@ smooths each boundary with a triangular kernel of half-width 0.5 voxels (the `ra
 The prediction then varies continuously with every edge position, and a gradient is available
 everywhere.
 
-## Relation to resampling models
+## Relation to other models
 
-Many correction methods evaluate the distortion in the opposite direction: they resample the
-acquired image at the displaced positions and compare the result with an undistorted image. We
-refer to this as a *pull* model, and to unpile's as a *push* model. Registration-based
-fieldmap-less correction, such as SyN-SDC, resamples without changing intensities (Wang et al.,
-2017).
+Two properties of a distortion model can be separated: the direction in which images are compared,
+and the operator that moves signal between the undistorted and the distorted grid.
 
-The forward model itself is not new. Andersson et al. (2003), the method on which FSL's TOPUP is
-based, describe the image formation of spin-echo EPI as a matrix $K$ that maps each column of the
-undistorted object to the distorted image, constructed by linear interpolation from the geometry
-of the displacement (p. 872). $W$ above is a matrix of the same kind. Their first formulation of
-field estimation uses this model directly: the undistorted image is restored from the two
-phase-encoding directions by least squares, both acquisitions are predicted from it, and the field
-is chosen to minimise the residual (Eqs. 11–14). Because the derivatives of that objective with
-respect to the field were difficult to compute, they adopted a tractable approximation for
-estimation. Each acquisition is resampled at the displaced positions and multiplied by the
-Jacobian of the displacement, $1 + \partial d / \partial y$, and the two corrected images are
-compared with each other (Eqs. 16–17). They note that this formulation is exact for continuous
-images and becomes an approximation only once the images are discretised (Appendix). On simulated
-data they showed that it recovers a field closely matching the one used to generate the data
-(Results, Fig. 5). The forward model was retained for restoring the final images (Eq. 10).
+### Direction of comparison
 
-unpile evaluates the forward model during estimation as well. The obstacle Andersson et al.
-identified, the derivatives of the objective with respect to the field, is removed by automatic
-differentiation, which computes them through the forward model at a cost comparable to evaluating
-the model itself.
+Many correction methods resample the acquired image at the displaced positions to
+undo the distortion, and compare the result with an undistorted image. We refer to this as a
+*pull* model, and to the opposite direction, predicting the acquired image from an undistorted
+one, as a *push* model. Registration-based fieldmap-less correction, such as SyN-SDC, is a pull
+model that resamples without changing intensities (Wang et al., 2017).
+
+Andersson et al. (2003), the method on which FSL's TOPUP is based, describe the image formation of
+spin-echo EPI as a push: a matrix $K$ maps each column of the undistorted object to the distorted
+image, constructed by linear interpolation from the geometry of the displacement (p. 872). $W$
+above is a matrix of the same kind. Their first formulation of field estimation uses this model
+directly: the undistorted image is restored from the two phase-encoding directions by least
+squares, both acquisitions are predicted from it, and the field is chosen to minimise the residual
+(Eqs. 11–14). Because the derivatives of that objective with respect to the field were difficult to
+compute, they adopted a tractable approximation for estimation. Each acquisition is resampled at
+the displaced positions and multiplied by the Jacobian of the displacement,
+$1 + \partial d / \partial y$, and the two corrected images are compared with each other
+(Eqs. 16–17). They note that this formulation is exact for continuous images and becomes an
+approximation only once the images are discretised (Appendix), and they showed on simulated data
+that it recovers a field closely matching the one used to generate the data (Results, Fig. 5). The
+push model was retained for restoring the final images (Eq. 10).
+
+FSL's eddy compares in the push direction (Andersson and Sotiropoulos, 2016). For each volume it
+predicts the undistorted image, resamples the prediction into the space of the acquisition, and
+minimises the squared difference from the acquired volume by Gauss–Newton steps (Eqs. 5–7). Eddy
+estimates eddy-current fields and head motion in this way; the susceptibility field is not
+estimated but supplied, in practice by TOPUP.
+
+unpile estimates the susceptibility field itself in the push direction. The obstacle identified
+by Andersson et al. (2003), the derivatives of the objective with respect to the field, is removed
+by automatic differentiation, which computes them through the forward model at a cost comparable to
+evaluating the model itself.
+
+### Operator
+
+Eddy's resampling into the acquisition (Eq. 5) samples the predicted image by spline
+interpolation at the source position of each acquired voxel and divides by the Jacobian. The splat
+instead integrates every reference cell that falls within each acquired voxel. Both conserve signal
+in the continuous limit; on a voxel grid they differ where the line is compressed. There an
+acquired voxel contains signal from about three reference voxels. Interpolation takes the value at
+one source position and scales it by the inverse Jacobian, about 3, which also triples any
+interpolation error. Integration sums the three values, which is how the acquired voxel was formed.
+
+Mass conservation along the phase-encoding line has a long history in reversed-gradient
+correction. Chang and Fitzpatrick (1992) matched the integrals of intensity along each line of two
+acquisitions with opposite gradient polarity. SuCor (Chigurupati and Garyfallidis, 2026) computes
+the same correspondence as a one-dimensional optimal transport map between the two line profiles,
+followed by smoothing across lines. Both methods require two acquisitions with opposite
+phase-encoding directions.
 
 ```{figure} ../_static/line_push_pull.svg
 :alt: At the true field, the reference pushed forward against the acquired line, and the acquired line resampled with the Jacobian against the reference.
 
-Both formulations evaluated at the true displacement, voxels 34–61. (A) Push: the reference
-predicted onto the acquired grid, compared with the acquired b=0. (B) Pull: the acquired b=0
+Push and pull evaluated at the true displacement, voxels 34–61. (A) Push: the reference predicted
+onto the acquired grid by the splat, compared with the acquired b=0. (B) Pull: the acquired b=0
 resampled and multiplied by the Jacobian, compared with the reference.
 ```
 
-The difference between the two formulations is the discretisation effect described above, and it
-is largest where signal piles up. There one acquired voxel contains signal from about three
-reference voxels. Resampling the acquired image spreads that one value over the three positions;
-pushing the reference forward sums the three values, which is how the acquired voxel was formed.
-
 The table gives the RMS difference at the true displacement, as a percentage of the median brain
 signal. A perfect model would leave only noise; in the background of this image the noise standard
-deviation is 4%.
+deviation is 4%. The acquired b=0 was simulated by TRXScan in k-space, not with any of these
+operators.
 
-| model | compared with | pile-up voxels (16) | stretched voxels (13) |
-|---|---|---|---|
-| push | acquired b=0 | 12% | 8% |
-| pull × Jacobian | reference | 18% | 6% |
-| pull without Jacobian | reference | 155% | 22% |
+| direction and operator | compared with | pile-up voxels (16) | stretched voxels (13) | other brain voxels (25) |
+|---|---|---|---|---|
+| push, splat | acquired b=0 | 12% | 8% | 10% |
+| push, interpolation ÷ Jacobian | acquired b=0 | 36% | 10% | 11% |
+| pull, interpolation × Jacobian | reference | 18% | 6% | 8% |
+| pull, interpolation only | reference | 155% | 22% | 9% |
 
-The push formulation fits more closely where signal piles up and slightly less closely where it is
-stretched. This comparison concerns a single acquisition compared with a reference, the setting of
-fieldmap-less correction. It is not a comparison with TOPUP, which compares two acquisitions with
-each other and whose approximation was validated in that setting. The last row shows why
-resampling alone performs poorly in pile-up regions: resampling cannot reduce the intensity of a
-voxel, so a registration that only resamples can reproduce a pile-up peak only by distorting the
-field.
+The interpolation row uses cubic-spline displacement with its analytic derivative and cubic
+B-spline image interpolation. Its pile-up value depends on how the Jacobian is evaluated between
+voxel centres: two other reasonable choices gave 25% and 52%. All three are well above the splat's
+12%. Outside the pile-up the four models perform similarly.
+
+These comparisons concern a single acquisition and a reference on one simulated line, the setting
+of fieldmap-less correction. They are not comparisons with TOPUP or eddy as tools: TOPUP compares two
+acquisitions with each other and its approximation was validated in that setting, and eddy does
+not estimate the susceptibility field. The last row shows why resampling alone performs poorly in
+pile-up regions: resampling cannot reduce the intensity of a voxel, so a registration that only
+resamples can reproduce a pile-up peak only by distorting the field.
 
 ## Objective
 
@@ -339,6 +368,9 @@ pile-up voxels. Adding the opposite phase-encoding direction removes the deficie
 region compressed in one direction is stretched in the other. The stacked matrix
 $[W_{+}\;W_{-}]$ has no singular value below 0.34, and the noise-free restoration is exact. This
 is the design of Andersson et al.'s two-acquisition method and of unpile's `--reverse-epi` mode.
+Eddy makes the same point about its own resampling and offers the least-squares restoration with
+$K$ matrices, regularised with a Laplacian, when every volume is acquired with both
+phase-encoding directions (Andersson and Sotiropoulos, 2016, section "Final resampling").
 
 At the estimated field, the RMS difference from the reference in the pile-up voxels is 152% for
 resampling, 16% for resampling with the Jacobian, and 9% for the least-squares inverse. The lower
@@ -370,7 +402,7 @@ The volumetric estimation minimises the same objective with the following differ
 ## Reproducing the figures
 
 ```bash
-pip install torch nibabel matplotlib
+pip install torch nibabel matplotlib scipy
 python docs/tools/make_line_walkthrough.py --testdata testdata/rpe --out docs/_static
 ```
 
@@ -387,6 +419,13 @@ the stored outputs were made.
 - Andersson, J. L. R., Skare, S., and Ashburner, J. (2003). How to correct susceptibility
   distortions in spin-echo echo-planar images: application to diffusion tensor imaging.
   *NeuroImage*, 20(2), 870–888.
+- Andersson, J. L. R., and Sotiropoulos, S. N. (2016). An integrated approach to correction for
+  off-resonance effects and subject movement in diffusion MR imaging. *NeuroImage*, 125,
+  1063–1078.
+- Chang, H., and Fitzpatrick, J. M. (1992). A technique for accurate magnetic resonance imaging in
+  the presence of field inhomogeneities. *IEEE Transactions on Medical Imaging*, 11, 319–329.
+- Chigurupati, S., and Garyfallidis, E. (2026). SuCor: susceptibility distortion correction via
+  parameter-free and self-regularized optimal transport. arXiv:2603.16758.
 - Liu, D. C., and Nocedal, J. (1989). On the limited memory BFGS method for large scale
   optimization. *Mathematical Programming*, 45, 503–528.
 - Wang, S., Peterson, D. J., Gatenby, J. C., Li, W., Grabowski, T. J., and Madhyastha, T. M.

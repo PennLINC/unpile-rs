@@ -4,7 +4,7 @@
 
     python docs/tools/make_line_walkthrough.py --testdata testdata/rpe --out docs/_static
 
-Needs torch, nibabel and matplotlib. The line operators live in line_model.py; before drawing
+Needs torch, nibabel, matplotlib and scipy. The line operators live in line_model.py; before drawing
 anything this script checks them against the PyTorch prototype's outputs in testdata/rpe. It
 prints the numbers quoted on the page.
 """
@@ -293,10 +293,18 @@ def fig_push_pull(d, out):
     save(fig, out, "line_push_pull.svg")
     jac = 1 + lm.ddx(disp)
     plain = lm.pull(d["obs"], disp) / gain
+    def scaled(p):
+        return p * lm.ssd_with_gain(p, d["obs"], d["near"])[1]
+
+    interp = scaled(lm.forward_interp(d["ref"], disp, "cubic"))
+    variants = {v: scaled(lm.forward_interp(d["ref"], disp, v)) for v in ("cubic", "linear", "central")}
     nums = {}
-    for name, sel in [("pileup", (jac < 0.85) & d["brain"]), ("stretched", (jac > 1.15) & d["brain"])]:
-        nums[name] = dict(n=int(sel.sum()), push=rms(push - d["obs"], sel), pull_jac=rms(pull_jac - d["ref"], sel),
-                          pull_plain=rms(plain - d["ref"], sel))
+    for name, sel in [("pileup", (jac < 0.85) & d["brain"]), ("stretched", (jac > 1.15) & d["brain"]),
+                      ("other_brain", (jac >= 0.85) & (jac <= 1.15) & d["brain"])]:
+        nums[name] = dict(n=int(sel.sum()), push=rms(push - d["obs"], sel), forward_interp=rms(interp - d["obs"], sel),
+                          pull_jac=rms(pull_jac - d["ref"], sel), pull_plain=rms(plain - d["ref"], sel))
+    pile = (jac < 0.85) & d["brain"]
+    nums["forward_interp_variants_pileup"] = {v: rms(p - d["obs"], pile) for v, p in variants.items()}
     return nums
 
 
