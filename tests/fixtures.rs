@@ -361,6 +361,24 @@ fn phasediff_fieldmap_pose_shim_with_t2w_pose() {
     finish(fails);
 }
 
+/// Pose alone under the T2w metric: the fixture's fieldmap differs from the truth only by its position,
+/// and without a shim to drift under the cross-contrast metric the field comes out close to the truth.
+#[test]
+fn phasediff_fieldmap_pose_with_t2w_pose() {
+    if fixture("phasediff").is_none() {
+        return;
+    }
+    let (s, mut fails) = fieldmap_with_t2w_pose("pose", "gre_t2w_pose");
+    expect(
+        &mut fails,
+        "phasediff fieldmap (pose) + T2w pose: field corr",
+        s["field"]["corr"].as_f64().unwrap(),
+        0.99,
+        1.0,
+    );
+    finish(fails);
+}
+
 /// With the residual on as well: the T2w metric pulls the residual away from the truth (the docs
 /// advise against it), but both poses must still be recovered.
 #[test]

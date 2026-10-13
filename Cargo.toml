@@ -1,6 +1,6 @@
 [package]
 name = "unpile"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Susceptibility distortion correction for EPI with a mass-conserving pushforward model (Rust port of the unpile prototype)"
 license = "MIT OR Apache-2.0"

@@ -42,8 +42,10 @@ produces this from a phase-difference or two-phase acquisition.
 
 `--fieldmap-refine` chooses the terms. The default is `pose,shim`. Add `delta` only with a
 same-contrast reference (SynB0 or, on simulated data, the clean b=0): under the T2w metric the
-residual term pulls a good fieldmap away from the truth. Pose and shim alone recover the position
-of a misplaced fieldmap, with either kind of reference (below).
+residual term pulls a good fieldmap away from the truth. With a T2w reference, refine `pose` alone
+unless the shim is known to have changed between the two scans: under the T2w metric the shim terms
+drift and cost accuracy (below). Pose, alone or with the shim, recovers the position of a misplaced
+fieldmap with either kind of reference.
 
 ## How refinement works, on one line
 
@@ -138,36 +140,42 @@ the brain (levels 24/12/6 mm, 20 iterations, as in the integration tests):
 | field correlation vs truth | 0.971 | 0.998 | 0.997 |
 | field rms error | 0.99 mm | 0.27 mm | 0.33 mm |
 
-With the T2w as the reference and its own position fitted (`--metric lncc --pose`), pose and shim
-place the fieldmap to 1.0° / 1.7 mm and the T2w to 0.4° / 0.7 mm. The field reaches 0.960
-correlation and 1.17 mm rms error, slightly worse than the fieldmap as acquired: under the T2w
-metric the shim terms cost a little accuracy. Adding `delta` under the T2w metric lowers the
-correlation to 0.61.
+With the T2w as the reference and its own position fitted (`--metric lncc --pose`):
+
+| terms | fieldmap position error | field correlation | field rms error |
+|---|---|---|---|
+| none (as acquired) | 5.4° / 4.0 mm | 0.971 | 0.99 mm |
+| pose | 1.3° / 1.0 mm | 0.997 | 0.35 mm |
+| pose, shim | 1.0° / 1.7 mm | 0.960 | 1.17 mm |
+| pose, shim, delta | 1.4° / 1.9 mm | 0.606 | 3.97 mm |
+
+The pose is recovered either way, and the T2w's own position to within 0.6° / 0.9 mm. The shim terms
+make the field worse here. This fieldmap was simulated with the same shim as the EPI, so the shim
+terms have nothing to correct, and under the cross-contrast metric they drift. With a real change of
+shim, pose alone cannot correct it; use a same-contrast reference (SynB0) for that.
 
 ```{figure} ../_static/gre_refinement.png
 :alt: The fieldmap as acquired, after refinement, the truth, and the difference.
 
-The fieldmap as acquired, after refinement with all three terms, the truth, and the difference
-(an earlier run of the same fixture).
+The fieldmap as acquired, after refinement with all three terms against the clean b=0 (the last
+column of the first table), the truth, and the difference.
 ```
 
 On real data there is no truth, but there is an independent field: FSL topup's from an AP/PA pair
 of the same session. On a 1.7 mm diffusion scan with a 92 ms readout and a same-shim GRE fieldmap
-(the HBCD protocol), scored against that field inside the brain. These values were recorded with
-version 0.1.0, in which pose and shim barely moved unless `delta` was also refined, and the
-in-brain mean of the field was pinned towards zero even with a fieldmap. The rows that refine pose
-and shim without `delta` are affected and will be re-run:
+(the HBCD protocol), scored against that field inside the brain:
 
 | fieldmap | reference | terms | correlation / slope / rms vs topup |
 |---|---|---|---|
 | as acquired (registered magnitude) | | | 0.952 / 0.99 / 1.38 mm |
-| as acquired | T2w | pose, shim | 0.958 / 1.02 / 1.35 mm |
-| as acquired | T2w | pose, shim, delta | 0.918 / 1.06 / 2.02 mm |
-| displaced by 5° / 4 mm | T2w | pose, shim | 0.887 / 0.99 / 2.25 mm (position moved 0.4°) |
 | displaced by 5° / 4 mm | topup-corrected b=0 | pose, shim, delta | 0.974 / 1.00 / 1.03 mm (position recovered: 5.1°) |
 
+These were recorded with version 0.1.0. The runs with the T2w as the reference were affected by two
+faults fixed in 0.2.0: pose and shim barely moved unless `delta` was also refined, and the field's
+in-brain mean was pinned towards zero even with a fieldmap. They are left out until they are re-run.
+
 A fieldmap that was registered properly is already close to the best field available. A fieldmap
-that is out of place was recovered with a same-contrast reference and all three terms (last row).
+that is out of place was recovered with a same-contrast reference and all three terms.
 In qsiprep that reference is the SynB0 image; the topup-corrected b=0 stands in for it here because
 no SynB0 exists for this subject yet.
 

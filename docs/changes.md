@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.2.0 (unreleased)
 
 - Fieldmap refinement without `delta` (the default `--fieldmap-refine pose,shim`) now moves the
   fieldmap's pose and shim. The unrefined residual was frozen with a very large penalty, which made
@@ -8,6 +8,9 @@
   dropping its gradient.
 - With a fieldmap and `--pose`, only the change to the fieldmap's in-brain mean is pinned, not the
   mean of the whole field, which the shim constant used to cancel.
+- With a T2w reference, refining the fieldmap's `pose` alone is recommended unless the shim changed:
+  under the cross-contrast metric the shim terms drift (simulated field correlation 0.997 with pose
+  alone, 0.960 with pose and shim).
 - `--truth-fieldmap-xfm` scores the fieldmap's pose; `--truth-xfm` scores only the reference's pose.
   Both were scored against `--truth-xfm` before.
 - `unpile.prepare(reference_xfm=...)` applies an initial ITK transform (`.txt` or ANTs `.mat`) to
