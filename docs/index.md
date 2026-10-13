@@ -42,6 +42,7 @@ quickstart
 :maxdepth: 2
 :caption: User guide
 
+user/how-it-works
 user/gre-refinement
 user/fieldmapless
 user/opposite-polarity
