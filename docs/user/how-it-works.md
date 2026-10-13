@@ -152,8 +152,12 @@ Fieldmap-less correction against an anatomical reference has used the pull direc
 et al. (2000). They registered each EPI slice to an undistorted anatomical slice with a cubic
 B-spline deformation restricted to the phase-encoding direction, estimated coarse to fine by least
 squares. Intensity changes were not modelled; high-pass filtering and histogram equalisation made
-the two images comparable instead. SyN-SDC likewise resamples without changing intensities (Wang et
-al., 2017). Reversed-gradient methods such as HySCO (Ruthotto et al., 2013) and its GPU
+the two images comparable instead. Studholme et al. (2000) added signal conservation. They resampled
+a spin-echo EPI volume into the space of an anatomical image and multiplied it by the Jacobian of a
+three-dimensional cubic B-spline displacement along the phase-encoding axis. The displacement was
+estimated together with a rigid transformation, coarse to fine from 30 mm to 10 mm control-point
+spacing, by maximising normalised mutual information, in one variant on log intensities. SyN-SDC
+resamples without changing intensities (Wang et al., 2017). Reversed-gradient methods such as HySCO (Ruthotto et al., 2013) and its GPU
 implementation PyHySCO (Julian and Ruthotto, 2024) use the pull model of Chang and Fitzpatrick
 (1992): both acquisitions are resampled at the displaced positions, multiplied by the Jacobian of
 the displacement, and compared with each other.
@@ -190,7 +194,9 @@ unpile also estimates the susceptibility field in the push direction with automa
 differentiation. It differs from FD-Net in three respects: the field is fitted to each subject by
 optimisation rather than predicted by a trained network; a single acquisition can be fitted against
 a reference image, with or without a rigid transformation; and the forward operator integrates
-cells rather than moving points, as described next.
+cells rather than moving points, as described next. Its single-acquisition mode addresses the
+problem of Studholme et al. (2000), a field and a rigid transformation estimated from one EPI and an
+anatomical image, with the comparison made in the push direction instead of the pull direction.
 
 ### Operator
 
@@ -367,7 +373,10 @@ other two directions, which limits this effect.
 With the field estimated, the corrected image is the image that, pushed forward, best explains the
 acquisition. unpile computes the least-squares solution with a small ridge and first-derivative
 smoothness penalty, using conjugate gradients (`unwarp` in `src/problem.rs`), and writes it to
-`corrected.nii.gz`.
+`corrected.nii.gz`. Restoring the image by solving the forward model, rather than by resampling,
+follows Munger et al. (2000). Given a measured field map, they solved the EPI imaging equation for
+the undistorted image by conjugate gradients, either for each phase-encoding profile or for the
+whole slice. Andersson et al. (2003, Eq. 6) state the same problem with the matrix $K$.
 
 ```{figure} ../_static/line_unwarp.svg
 :alt: Corrected lines from the estimated field: resampled, resampled with the Jacobian, and the least-squares inverse of the push, against the reference.
@@ -457,9 +466,15 @@ the stored outputs were made.
   distorted EPI images. *IEEE Transactions on Medical Imaging*, 19(2), 80–93.
 - Liu, D. C., and Nocedal, J. (1989). On the limited memory BFGS method for large scale
   optimization. *Mathematical Programming*, 45, 503–528.
+- Munger, P., Crelier, G. R., Peters, T. M., and Pike, G. B. (2000). An inverse problem approach
+  to the correction of distortion in EPI images. *IEEE Transactions on Medical Imaging*, 19(7),
+  681–689.
 - Ruthotto, L., Mohammadi, S., Heck, C., Modersitzki, J., and Weiskopf, N. (2013). Hyperelastic
   susceptibility artifact correction of DTI in SPM. In *Bildverarbeitung für die Medizin 2013*,
   Springer. doi:10.1007/978-3-642-36480-8_60.
+- Studholme, C., Constable, R. T., and Duncan, J. S. (2000). Accurate alignment of functional EPI
+  data to anatomical MRI using a physics-based distortion model. *IEEE Transactions on Medical
+  Imaging*, 19(11), 1115–1127.
 - Wang, S., Peterson, D. J., Gatenby, J. C., Li, W., Grabowski, T. J., and Madhyastha, T. M.
   (2017). Evaluation of field map and nonlinear registration methods for correction of
   susceptibility artifacts in diffusion MRI. *Frontiers in Neuroinformatics*, 11, 17.
