@@ -252,6 +252,14 @@ fn phasediff_t2w_fieldmapless() {
         0.0,
         3.0,
     );
+    let posed = dir.join("out").join("t2w").join("reference_posed.nii.gz");
+    expect(
+        &mut fails,
+        "phasediff T2w: reference_posed.nii.gz written (1 = yes)",
+        if posed.exists() { 1.0 } else { 0.0 },
+        1.0,
+        1.0,
+    );
     expect(
         &mut fails,
         "phasediff T2w: field corr (loose: a refiner, not a fieldmap)",

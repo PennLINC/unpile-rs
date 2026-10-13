@@ -8,6 +8,7 @@ cargo test --release --features wgpu           # unit tests
 ./target/release/unpile check --dir testdata/rpe   # operators vs the PyTorch dumps
 python scripts/make_fixtures.py phasediff rpe  # TRXScan fixtures into testdata/fixtures
 UNPILE_FIXTURES=$PWD/testdata/fixtures cargo test --release --features wgpu --test fixtures -- --nocapture
+UNPILE_FIXTURES=$PWD/testdata/fixtures python scripts/check_itk_conventions.py .   # transforms vs ANTs (needs ANTs; not in CI)
 ```
 
 `cargo fmt --check` and `cargo clippy --release --features wgpu -- -D warnings` must pass; CI runs

@@ -62,6 +62,8 @@ Options:
           ITK affine (.txt/.mat/.h5) the reference pose (--pose) is scored against (fixed EPI -> moving reference)
       --truth-fieldmap-xfm <TRUTH_FIELDMAP_XFM>
           ITK affine (.txt/.mat/.h5) the fieldmap pose is scored against (fixed EPI -> moving fieldmap)
+      --reference-init-xfm <REFERENCE_INIT_XFM>
+          ITK affine (.txt/.mat/.h5) already applied to the reference when it was put on the EPI grid (unpile.prepare's reference_xfm): pose_composed_xfm.txt then maps the EPI grid to the original reference, and --truth-xfm scores that composition
   -h, --help
           Print help
 ```

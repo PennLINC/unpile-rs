@@ -73,7 +73,19 @@ positive phase-encoding axis for `j` and away from it for `j-`. This is the conv
 : the position of the reference and of the fieldmap as Insight Transform File affines, from the EPI
   grid to the reference or the fieldmap. They are written through
   [itk-transforms-rs](https://github.com/PennLINC/itk-transforms-rs), which handles the RAS-to-LPS
-  conversion.
+  conversion. `antsApplyTransforms -i reference.nii.gz -r epi.nii.gz -t pose_xfm.txt` puts the
+  reference where the fit placed it.
+
+`pose_composed_xfm.txt`
+: with `--reference-init-xfm`: the transform from the EPI grid to the original reference, the
+  initial transform applied after the fitted pose. `antsApplyTransforms -t pose_composed_xfm.txt`
+  equals `-t pose_xfm.txt -t <initial transform>`: ANTs maps a point through the transforms in the
+  order they are listed.
+
+`reference_posed.nii.gz`
+: with `--pose`: the reference on the EPI grid as the fit placed it, aligned with
+  `corrected.nii.gz` (the fit pushes it through the field before comparing, so it matches the
+  undistorted EPI, not the acquired one).
 
 `score.json`
 : the settings of the run and, with `--truth-field`, `--truth-xfm` (the reference's pose) and

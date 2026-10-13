@@ -97,7 +97,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install maturin pytest
+      - run: pip install maturin pytest nitransforms
       - run: maturin build --release --features wgpu --out dist
       - run: pip install "$(ls dist/*.whl)[prep]"
       - name: console script, module shim, Python API
