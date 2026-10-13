@@ -370,6 +370,30 @@ def fig_unwarp(d, snaps, out):
     return dict(plain=rms(plain - d["ref"], pile), pull_jac=rms(pb - d["ref"], pile), inverse=rms(inv - d["ref"], pile))
 
 
+def restoration_limits(d):
+    """How much of the pile-up one acquisition can restore, and what the opposite direction adds."""
+    disp = d["field_true"] * d["step"]
+    pile = ((1 + lm.ddx(disp)) < 0.85) & d["brain"]
+    gain = lm.ssd_with_gain(lm.splat(d["ref"], disp), d["obs"], d["near"])[1]
+    out = {}
+    w_one = lm.splat_weights(disp)
+    w_two = torch.cat([w_one, lm.splat_weights(-disp)], 1)
+    for name, w in [("one_direction", w_one), ("two_directions", w_two)]:
+        sv = torch.linalg.svdvals(w)
+        out[f"{name}_zero_singular_values"] = int((sv < 1e-3).sum())
+        out[f"{name}_smallest_singular_value"] = sv.min().item()
+    # noise-free: the reference pushed forward with the true field, restored without any penalty
+    one = lm.restore([lm.splat(d["ref"], disp)], [disp], ridge=1e-6, grad_reg=0.0)
+    two = lm.restore([lm.splat(d["ref"], disp), lm.splat(d["ref"], -disp)], [disp, -disp], ridge=1e-6, grad_reg=0.0)
+    out["noise_free_one_direction"] = rms(one - d["ref"], pile)
+    out["noise_free_two_directions"] = rms(two - d["ref"], pile)
+    # the acquired line at the true field: the penalty, not the model, makes the difference
+    for gr in (0.05, 0.0):
+        out[f"acquired_inverse_grad_reg_{gr}"] = rms(lm.unwarp(d["obs"], disp, grad_reg=gr) / gain - d["ref"], pile)
+    out["acquired_pull_jacobian"] = rms(lm.pullback(d["obs"], disp) / gain - d["ref"], pile)
+    return out
+
+
 def animation(d, snaps, out, dt=0.12, hold=2.0):
     """The fit as an animated SVG: every frame is drawn once and shown in turn by CSS keyframes."""
     keep = [s for s in snaps if s["it"] <= 12 or s["it"] % 6 == 0]
@@ -448,6 +472,7 @@ def main():
           [i for i in range(len(d["obs"])) if contrib[i, top] > 0.05 * contrib[:, top].sum()])
     print("RMS at the true field (median brain signal = 1):", pp)
     print("corrected line vs reference in pile-up voxels:", uw)
+    print("restoration limits (true field, pile-up voxels):", restoration_limits(d))
     for level, h in enumerate(LEVELS_MM):
         for s in snaps:
             if s["level"] == level and (s["it"] in (0, 1, 3, 10, ITERS) if level == 0 else s["it"] == ITERS):

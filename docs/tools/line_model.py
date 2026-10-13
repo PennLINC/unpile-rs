@@ -133,17 +133,27 @@ def ssd_with_gain(pred, obs, mask):
     return (mask * diff * diff).sum() / mask.sum(), gain
 
 
-def unwarp(obs, disp, ridge=1e-3, grad_reg=0.05, **kw):
-    """The corrected line: the image that, pushed forward, best explains the observation.
+def restore(observations, displacements, ridge=1e-3, grad_reg=0.05, **kw):
+    """The image that, pushed forward with each displacement, best explains each observation.
 
-    Solves (W^T W + ridge I + grad_reg D^T D) x = W^T obs, the normal equations ``unwarp`` in
-    src/problem.rs runs conjugate gradients on (there with a 3-D gradient penalty).
+    Solves (sum_k W_k W_k^T + ridge I + grad_reg D^T D) x = sum_k W_k obs_k, the normal equations
+    that ``unwarp`` (one observation) and ``solve_latent`` (two) in src/problem.rs run conjugate
+    gradients on, there with a 3-D gradient penalty.
     """
-    w = splat_weights(disp, **kw)  # rows: source voxels; obs = w.T @ x
-    n = obs.shape[-1]
+    n = observations[0].shape[-1]
     dmat = torch.diff(torch.eye(n), dim=0)
-    lhs = w @ w.T + ridge * torch.eye(n) + grad_reg * dmat.T @ dmat
-    return torch.linalg.solve(lhs, w @ obs)
+    lhs = ridge * torch.eye(n) + grad_reg * dmat.T @ dmat
+    rhs = torch.zeros(n)
+    for obs, disp in zip(observations, displacements):
+        w = splat_weights(disp, **kw)  # rows: source voxels, so obs = w.T @ x
+        lhs = lhs + w @ w.T
+        rhs = rhs + w @ obs
+    return torch.linalg.solve(lhs, rhs)
+
+
+def unwarp(obs, disp, ridge=1e-3, grad_reg=0.05, **kw):
+    """The corrected line from one observation (``corrected.nii.gz``)."""
+    return restore([obs], [disp], ridge, grad_reg, **kw)
 
 
 def check(testdata):

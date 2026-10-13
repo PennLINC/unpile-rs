@@ -78,8 +78,9 @@ peak at voxel 44 receives most of its signal from reference voxels 46 to 49.
 ```
 
 Because the operation redistributes area rather than interpolating values, it conserves the total
-signal on the line. unpile refers to it as a *splat*, or mass-conserving pushforward. In matrix
-form, the share of cell $i$ that falls in output voxel $j$ is the entry $W_{ij}$, and the prediction
+signal on the line. We refer to it as the forward model or push-forward; in the code it is called
+`splat`, a term from computer graphics for distributing a value over a grid. In matrix form, the
+share of cell $i$ that falls in output voxel $j$ is the entry $W_{ij}$, and the prediction
 is $\text{pred}_j = \sum_i W_{ij}\,\text{ref}_i$:
 
 ```{literalinclude} ../tools/line_model.py
@@ -97,31 +98,46 @@ smooths each boundary with a triangular kernel of half-width 0.5 voxels (the `ra
 The prediction then varies continuously with every edge position, and a gradient is available
 everywhere.
 
-## Comparison with resampling models
+## Relation to resampling models
 
-Most correction methods model the distortion in the opposite direction. They resample the acquired
-image at the displaced positions to undo the distortion, and compare the result with an
-undistorted image; this is a *pull* model. Registration-based fieldmap-less correction, such as
-SyN-SDC, resamples only (Wang et al., 2017). TOPUP (Andersson et al., 2003) is also a pull model. It
-resamples each acquired image and multiplies the result by the Jacobian of the displacement,
-$1 + \partial d / \partial y$, which corrects the intensity change caused by compression and
-stretching. It then compares the corrected images of the two phase-encoding directions with each
-other. unpile uses a *push* model: values are carried forward from the undistorted image to the
-acquired grid.
+Many correction methods evaluate the distortion in the opposite direction: they resample the
+acquired image at the displaced positions and compare the result with an undistorted image. We
+refer to this as a *pull* model, and to unpile's as a *push* model. Registration-based
+fieldmap-less correction, such as SyN-SDC, resamples without changing intensities (Wang et al.,
+2017).
+
+The forward model itself is not new. Andersson et al. (2003), the method on which FSL's TOPUP is
+based, describe the image formation of spin-echo EPI as a matrix $K$ that maps each column of the
+undistorted object to the distorted image, constructed by linear interpolation from the geometry
+of the displacement (p. 872). $W$ above is a matrix of the same kind. Their first formulation of
+field estimation uses this model directly: the undistorted image is restored from the two
+phase-encoding directions by least squares, both acquisitions are predicted from it, and the field
+is chosen to minimise the residual (Eqs. 11–14). Because the derivatives of that objective with
+respect to the field were difficult to compute, they adopted a tractable approximation for
+estimation. Each acquisition is resampled at the displaced positions and multiplied by the
+Jacobian of the displacement, $1 + \partial d / \partial y$, and the two corrected images are
+compared with each other (Eqs. 16–17). They note that this formulation is exact for continuous
+images and becomes an approximation only once the images are discretised (Appendix). On simulated
+data they showed that it recovers a field closely matching the one used to generate the data
+(Results, Fig. 5). The forward model was retained for restoring the final images (Eq. 10).
+
+unpile evaluates the forward model during estimation as well. The obstacle Andersson et al.
+identified, the derivatives of the objective with respect to the field, is removed by automatic
+differentiation, which computes them through the forward model at a cost comparable to evaluating
+the model itself.
 
 ```{figure} ../_static/line_push_pull.svg
 :alt: At the true field, the reference pushed forward against the acquired line, and the acquired line resampled with the Jacobian against the reference.
 
-Both models evaluated at the true displacement, voxels 34–61. (A) Push: the reference
+Both formulations evaluated at the true displacement, voxels 34–61. (A) Push: the reference
 predicted onto the acquired grid, compared with the acquired b=0. (B) Pull: the acquired b=0
 resampled and multiplied by the Jacobian, compared with the reference.
 ```
 
-For a continuous image the two directions are equivalent; on a voxel grid they are not. In a
-region of pile-up, one acquired voxel contains signal from about three reference voxels. Resampling
-can only distribute that one value over the three positions, and the structure among them cannot
-be recovered from the acquired image. The push model sums the reference, which still contains that
-structure, onto the coarser acquired grid. It never needs to recover the lost detail.
+The difference between the two formulations is the discretisation effect described above, and it
+is largest where signal piles up. There one acquired voxel contains signal from about three
+reference voxels. Resampling the acquired image spreads that one value over the three positions;
+pushing the reference forward sums the three values, which is how the acquired voxel was formed.
 
 The table gives the RMS difference at the true displacement, as a percentage of the median brain
 signal. A perfect model would leave only noise; in the background of this image the noise standard
@@ -133,11 +149,13 @@ deviation is 4%.
 | pull × Jacobian | reference | 18% | 6% |
 | pull without Jacobian | reference | 155% | 22% |
 
-The push model is more accurate where signal piles up and slightly less accurate where it is
-stretched. Pile-up regions are also where fieldmap-less correction most often fails, so the
-difference matters most there. The last row shows why resampling alone performs poorly in these
-regions: resampling cannot reduce the intensity of a voxel. A registration that only resamples can
-reproduce a pile-up peak only by distorting the field.
+The push formulation fits more closely where signal piles up and slightly less closely where it is
+stretched. This comparison concerns a single acquisition compared with a reference, the setting of
+fieldmap-less correction. It is not a comparison with TOPUP, which compares two acquisitions with
+each other and whose approximation was validated in that setting. The last row shows why
+resampling alone performs poorly in pile-up regions: resampling cannot reduce the intensity of a
+voxel, so a registration that only resamples can reproduce a pile-up peak only by distorting the
+field.
 
 ## Objective
 
@@ -169,7 +187,7 @@ their intensities.
 ## The initial gradient
 
 At zero field the prediction is the reference, scaled by the gain. Automatic differentiation
-through the splat gives the derivative of the objective with respect to the field at every voxel.
+through the forward model gives the derivative of the objective with respect to the field at every voxel.
 
 ```{figure} ../_static/line_gradient.svg
 :alt: The prediction at zero field against the acquired line, and the descent direction for the field, per voxel and projected on the coarse B-spline grid, next to the true displacement.
@@ -258,8 +276,9 @@ other two directions, which limits this effect.
 ## Corrected image
 
 With the field estimated, the corrected image is the image that, pushed forward, best explains the
-acquisition. unpile computes it as the least-squares solution with a small smoothness penalty,
-using conjugate gradients (`unwarp` in `src/problem.rs`), and writes it to `corrected.nii.gz`.
+acquisition. unpile computes the least-squares solution with a small ridge and first-derivative
+smoothness penalty, using conjugate gradients (`unwarp` in `src/problem.rs`), and writes it to
+`corrected.nii.gz`.
 
 ```{figure} ../_static/line_unwarp.svg
 :alt: Corrected lines from the estimated field: resampled, resampled with the Jacobian, and the least-squares inverse of the push, against the reference.
@@ -271,9 +290,25 @@ reference's intensity scale.
 The displacement field `sdc_warp.nii.gz` is applied by `antsApplyTransforms` as a resampling
 (dotted). It returns signal to the correct position but does not change intensities, so the pile-up
 remains as a broad bright band. Multiplying by the Jacobian corrects the intensities (dashed). The
-least-squares inverse of the push also recovers the structure within the pile-up. In the pile-up
-voxels, the RMS difference from the reference is 152% for resampling, 16% for resampling with the
-Jacobian, and 9% for the inverse of the push.
+solid line is the least-squares inverse.
+
+No method can fully restore the intensities inside a pile-up from a single acquisition. Andersson
+et al. (2003) make this point in the section "On the existence of $K^{-1}$". Where several voxels
+are mapped to one, $K$ is rank deficient, and "we cannot deduce a sample from its mean". The same
+holds for $W$ on this line: 5 of its 85 singular values are zero. Even with the true field and no
+noise, the least-squares restoration from this line differs from the reference by 12% in the
+pile-up voxels. Adding the opposite phase-encoding direction removes the deficiency, because the
+region compressed in one direction is stretched in the other. The stacked matrix
+$[W_{+}\;W_{-}]$ has no singular value below 0.34, and the noise-free restoration is exact. This
+is the design of Andersson et al.'s two-acquisition method and of unpile's `--reverse-epi` mode.
+
+At the estimated field, the RMS difference from the reference in the pile-up voxels is 152% for
+resampling, 16% for resampling with the Jacobian, and 9% for the least-squares inverse. The lower
+value for the least-squares inverse comes from its smoothness penalty, which assigns smooth values
+to the components that the acquisition does not determine; it does not recover the lost detail. At
+the true field, without the penalty, the least-squares inverse and Jacobian resampling differ from
+the reference by the same amount (18%). For a single acquisition, `corrected.nii.gz` is therefore
+a regularised estimate in regions of pile-up.
 
 ## From one line to the volume
 
@@ -289,7 +324,7 @@ The volumetric estimation minimises the same objective with the following differ
   towards zero.
 - With a gradient-echo fieldmap (`--fieldmap`), the field is the fieldmap under its own rigid
   transformation, plus a second-order shim polynomial, plus a B-spline residual with a ridge
-  penalty. The same splat and data term are used to estimate all three; see {doc}`gre-refinement`.
+  penalty. The same forward model and data term are used to estimate all three; see {doc}`gre-refinement`.
 - With a pair of opposite phase-encoding directions (`--reverse-epi`) there is no reference. The
   undistorted image is re-estimated between rounds as the image that, pushed forward with $+d$ and
   $-d$, best explains both acquisitions; see {doc}`opposite-polarity`.
