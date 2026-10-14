@@ -154,6 +154,14 @@ make the field worse here. This fieldmap was simulated with the same shim as the
 terms have nothing to correct, and under the cross-contrast metric they drift. With a real change of
 shim, pose alone cannot correct it; use a same-contrast reference (SynB0) for that.
 
+A pose cannot change the fieldmap's amplitude either. Against a synthetic reference such as a SynB0
+image, which carries part of the distortion of the b=0 it was generated from, the data term prefers
+a weaker field than the fieldmap, and the only pose that provides one slides the fieldmap off the
+grid. A refined pose beyond 15° or 15 mm is treated as that failure rather than as a registration
+residual: the pose is reset and no longer refined, the run warns, `score.json` records the pose it
+reached under `gre_pose_divergence`, and the fieldmap's pose is applied as given. With a SynB0
+reference, apply the fieldmap as given (`--fieldmap-refine none`).
+
 ```{figure} ../_static/gre_refinement.png
 :alt: The fieldmap as acquired, after refinement, the truth, and the difference.
 

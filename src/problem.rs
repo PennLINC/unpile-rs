@@ -49,6 +49,9 @@ pub struct Problem {
     /// GRE prior (Hz on the data grid) with its own pose and a harmonic shim polynomial
     pub gre: Option<Tensor<3>>,
     pub gre_pose: Option<Tensor<1>>,
+    /// Set when the fieldmap pose refinement left the plausible range and was reset:
+    /// (rotation deg, translation mm) it had reached.
+    pub gre_pose_divergence: Option<(f32, [f32; 3])>,
     pub shim: Option<Tensor<1>>,
     pub shim_basis: Option<Tensor<2>>, // (9, n0*n1*n2)
     pub gre_ridge: f32,
