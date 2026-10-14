@@ -398,6 +398,62 @@ fn phasediff_fieldmap_with_t2w_pose() {
 }
 
 /// Two opposite-polarity images, no reference.
+/// A reference that cannot support the fieldmap as a whole must not send the pose refinement off
+/// the grid. The distorted EPI as its own reference wants no field at all, and the only pose that
+/// gives none slides the fieldmap out of the field of view: the guard resets the pose, reports it,
+/// and the field is the fieldmap as given.
+#[test]
+fn phasediff_fieldmap_pose_guard() {
+    let Some(dir) = fixture("phasediff") else {
+        return;
+    };
+    let epi = dir.join("b0_AP.nii.gz");
+    let gre = dir.join("gre_hz.nii.gz");
+    let common = [
+        "--reference",
+        epi.to_str().unwrap(),
+        "--lam-mm",
+        "5",
+        "--fieldmap",
+        gre.to_str().unwrap(),
+        "--fieldmap-refine",
+    ];
+    let mut fails = Vec::new();
+    let given = fit(&dir, "pose_guard_given", &[&common[..], &["none"]].concat());
+    let s = fit(&dir, "pose_guard", &[&common[..], &["pose"]].concat());
+    assert!(
+        s["gre_pose_divergence"].is_object(),
+        "the diverged fieldmap pose was not reported in score.json"
+    );
+    let d = &s["gre_pose_divergence"];
+    let shift = d["translation_mm"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap().powi(2))
+        .sum::<f64>()
+        .sqrt();
+    expect(
+        &mut fails,
+        "pose guard: the reported pose is beyond the limit (deg or mm)",
+        d["rotation_deg"].as_f64().unwrap().max(shift),
+        15.0,
+        1e6,
+    );
+    expect(
+        &mut fails,
+        "pose guard: field corr minus the fieldmap as given",
+        s["field"]["corr"].as_f64().unwrap() - given["field"]["corr"].as_f64().unwrap(),
+        -0.005,
+        0.005,
+    );
+    assert!(
+        given["gre_pose_divergence"].is_null(),
+        "a fieldmap applied as given must not report a divergence"
+    );
+    finish(fails);
+}
+
 #[test]
 fn rpe_two_blip() {
     let Some(dir) = fixture("rpe") else { return };

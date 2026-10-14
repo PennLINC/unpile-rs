@@ -2,8 +2,16 @@
 use crate::field::{BsplineField, SCALE};
 use crate::lbfgs::{lbfgs, LbfgsOptions};
 use crate::ops::{bending_energy, from_vec};
+use crate::pose::pose_report;
 use crate::problem::Problem;
 use burn::tensor::{Device, Tensor, TensorData};
+
+/// A refined fieldmap pose beyond this is not a registration residual: the reference cannot
+/// support the prior as a whole (a synthetic reference carries part of the distortion, so the
+/// data term prefers a weaker field, which a pose can only provide by sliding the fieldmap out
+/// of the field of view). The pose is reset and no longer refined; the fieldmap is applied as given.
+pub const GRE_POSE_MAX_DEG: f32 = 15.0;
+pub const GRE_POSE_MAX_MM: f32 = 15.0;
 
 pub struct OptimizeOptions {
     pub levels_mm: Vec<f32>,
@@ -58,6 +66,8 @@ pub fn optimize(
     // a residual that is not refined stays at zero: its gradient is dropped below. Freezing it with
     // a huge penalty instead made the problem so stiff that the line search barely moved pose or shim.
     let freeze_delta = has_gre && !opt.gre_refine_delta;
+    // set once the fieldmap pose has diverged: its gradient is dropped for the remaining levels
+    let gre_pose_frozen = std::cell::Cell::new(false);
     let lam = opt.lam;
     let nlev = opt.levels_mm.len();
     for (lev, &h_mm) in opt.levels_mm.iter().enumerate() {
@@ -197,7 +207,7 @@ pub fn optimize(
                         .grad(&grads)
                         .map(|t| t.to_data().try_to_vec::<f32>().unwrap())
                         .unwrap_or_else(|| vec![0.0; 6]);
-                    if !opt.gre_refine_pose {
+                    if !opt.gre_refine_pose || gre_pose_frozen.get() {
                         gg.iter_mut().for_each(|v| *v = 0.0);
                     }
                     let mut gs = sh
@@ -216,6 +226,18 @@ pub fn optimize(
             };
             let mut objective = objective;
             lbfgs(&mut objective, &mut c, &lbopt);
+            if has_gre && opt.gre_refine_pose && !gre_pose_frozen.get() {
+                let rep = pose_report(&Tensor::<1>::from_data(
+                    TensorData::new(c[np_..np_ + 6].to_vec(), [6]),
+                    device,
+                ));
+                let shift = rep.translation_mm.iter().map(|v| v * v).sum::<f32>().sqrt();
+                if rep.rotation_deg > GRE_POSE_MAX_DEG || shift > GRE_POSE_MAX_MM {
+                    problem.gre_pose_divergence = Some((rep.rotation_deg, rep.translation_mm));
+                    gre_pose_frozen.set(true);
+                    c[np_..np_ + 6].iter_mut().for_each(|v| *v = 0.0);
+                }
+            }
             if opt.blip_pose && opt.pepolar {
                 // block-coordinate step on the second blip's pose with the field fixed; its PE
                 // translation (index 5) is confounded with the field's DC and stays at zero

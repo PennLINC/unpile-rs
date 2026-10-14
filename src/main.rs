@@ -304,6 +304,7 @@ fn main() -> Result<()> {
                 blip_gain_value: 1.0,
                 gre: None,
                 gre_pose: None,
+                gre_pose_divergence: None,
                 shim: None,
                 shim_basis: None,
                 gre_ridge: 1.0,
@@ -522,6 +523,7 @@ fn main() -> Result<()> {
                 blip_gain_value: 1.0,
                 gre: None,
                 gre_pose: None,
+                gre_pose_divergence: None,
                 shim: None,
                 shim_basis: None,
                 gre_ridge: 1.0,
@@ -607,6 +609,12 @@ fn main() -> Result<()> {
                         .collect::<Vec<f32>>()
                 );
             }
+            if let Some((deg, mm)) = pr.gre_pose_divergence {
+                eprintln!(
+                    "  warning: the fieldmap pose refinement diverged ({deg:.1} deg, {:?} mm): the reference does not support the fieldmap as a whole, which a pose cannot fix; the fieldmap's pose is applied as given",
+                    mm.map(|v| (v * 10.0).round() / 10.0)
+                );
+            }
             if let Some(bp) = &pr.blip_pose {
                 let rep = unpile::pose::pose_report(bp);
                 println!(
@@ -658,6 +666,9 @@ fn main() -> Result<()> {
                 )?;
             }
             let mut report = json!({"norm": norm, "levels": levels, "lam": lam});
+            if let Some((deg, mm)) = pr.gre_pose_divergence {
+                report["gre_pose_divergence"] = json!({"rotation_deg": deg, "translation_mm": mm});
+            }
             {
                 let lv = level_log.borrow();
                 if let (Some(first), Some(last)) = (lv.first(), lv.last()) {
